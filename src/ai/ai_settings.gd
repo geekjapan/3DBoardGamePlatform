@@ -42,7 +42,10 @@ func load_from_disk() -> void:
 		return
 	ai_enabled = bool(cfg.get_value(SECTION, "enabled", false))
 	strength = int(cfg.get_value(SECTION, "strength", EngineAdapter.Strength.MEDIUM))
-	engine_path = str(cfg.get_value(SECTION, "engine_path", _guess_default_path()))
+	engine_path = str(cfg.get_value(SECTION, "engine_path", "")).strip_edges()
+	if engine_path == "":
+		# 空で保存された設定が自動検出に勝たないようにする。
+		engine_path = _guess_default_path()
 	protocol = str(cfg.get_value(SECTION, "protocol", "uci"))
 	human_side = int(cfg.get_value(SECTION, "human_side", Piece.Side.WHITE))
 	strength = clampi(strength, EngineAdapter.Strength.WEAK, EngineAdapter.Strength.STRONG)

@@ -107,6 +107,18 @@ func test_settings_persist_and_disable_without_engine() -> void:
 	check(not loaded.ai_enabled, "オフが保持される")
 
 
+func test_empty_saved_engine_path_falls_back_to_autodetect() -> void:
+	# 空で保存された値が自動検出に勝つと、エンジンが入っていても見つからないままになる。
+	var s := AiSettings.new()
+	s.engine_path = ""
+	s.save_to_disk()
+	var loaded := AiSettings.load_or_default()
+	check(loaded.engine_path != "", "空保存なら自動検出にフォールバックする")
+
+	# 実ファイルの user://settings.cfg を汚したままにしない。
+	loaded.save_to_disk()
+
+
 func test_strength_presets_map_to_different_skill_levels() -> void:
 	var engine := UciEngine.new()
 	var weak := engine.skill_level_for(EngineAdapter.Strength.WEAK)

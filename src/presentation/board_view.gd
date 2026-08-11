@@ -260,11 +260,17 @@ func _start_capture(node: PieceNode) -> void:
 
 func _on_capture_finished(node: PieceNode) -> void:
 	_capturing_nodes.erase(node)
-	if is_instance_valid(node):
-		_free_piece_node(node)
+	if not is_instance_valid(node):
+		return
+	# ここは node 自身の capture_finished 発火中なので、free() はロックされて失敗する。
+	# remove_child で表示は即座に消し、実体の解放だけフレーム末に回す。
+	if node.get_parent() != null:
+		node.get_parent().remove_child(node)
+	node.queue_free()
 
 
 func _free_piece_node(node: PieceNode) -> void:
+	## 同期経路(盤の突き合わせ)専用。呼び出し元がロック中でないので即時解放でよい。
 	if not is_instance_valid(node):
 		return
 	if node.get_parent() != null:

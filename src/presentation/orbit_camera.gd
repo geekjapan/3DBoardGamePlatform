@@ -7,8 +7,8 @@ extends Node3D
 
 const DRAG_THRESHOLD_PX := 6.0
 
-@export var distance: float = 12.0
-@export var min_distance: float = 5.0
+@export var distance: float = 9.0
+@export var min_distance: float = 4.0
 @export var max_distance: float = 22.0
 @export var yaw_degrees: float = 35.0
 @export var pitch_degrees: float = -42.0
