@@ -3,8 +3,10 @@ extends CanvasLayer
 
 ## 対局開始時のチーム選択。先手(白)・後手(黒)を独立に選び、同一チームも可。
 ## 確定で TeamSettings を保存し confirmed を出す。
+## 編成画面へは edit_requested で遷移する。
 
 signal confirmed(settings: TeamSettings)
+signal edit_requested
 signal closed
 
 var _catalog: SpeechCatalog
@@ -61,7 +63,7 @@ func _init() -> void:
 
 	_hint_label = Label.new()
 	_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_hint_label.text = "先手・後手それぞれチームを選べます。同じチーム同士でも対局できます。"
+	_hint_label.text = "先手・後手それぞれチームを選べます。同じチーム同士でも対局できます。編成の作成・編集もここから。"
 	_hint_label.add_theme_color_override("font_color", Color(0.75, 0.78, 0.85))
 	vbox.add_child(_hint_label)
 
@@ -72,6 +74,12 @@ func _init() -> void:
 	btn_row.add_theme_constant_override("separation", 12)
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
 	vbox.add_child(btn_row)
+
+	var edit_btn := Button.new()
+	edit_btn.text = "編成を編集"
+	edit_btn.custom_minimum_size = Vector2(140, 40)
+	edit_btn.pressed.connect(_on_edit_pressed)
+	btn_row.add_child(edit_btn)
 
 	var start_btn := Button.new()
 	start_btn.text = "このチームで対局開始"
@@ -116,10 +124,23 @@ func _build_side_block(title_text: String, is_white: bool) -> Control:
 func open_with(catalog: SpeechCatalog, settings: TeamSettings) -> void:
 	_catalog = catalog
 	_settings = settings
-	_populate_options(_white_option, settings.white_team_id)
-	_populate_options(_black_option, settings.black_team_id)
-	_refresh_lineups()
+	refresh_options()
 	visible = true
+
+
+func refresh_options() -> void:
+	## カタログにユーザー編成が追加されたあと選択肢を取り直す。
+	if _settings == null:
+		return
+	var white_pref := selected_white_team_id() if _white_option.item_count > 0 else _settings.white_team_id
+	var black_pref := selected_black_team_id() if _black_option.item_count > 0 else _settings.black_team_id
+	if white_pref == "":
+		white_pref = _settings.white_team_id
+	if black_pref == "":
+		black_pref = _settings.black_team_id
+	_populate_options(_white_option, white_pref)
+	_populate_options(_black_option, black_pref)
+	_refresh_lineups()
 
 
 func selected_white_team_id() -> String:
@@ -184,6 +205,10 @@ func _lineup_text(team_id: String) -> String:
 			cname = ch.display_name
 		parts.append("%s=%s" % [SpeechCatalog.kind_name(kind), cname])
 	return "並び: " + ", ".join(parts)
+
+
+func _on_edit_pressed() -> void:
+	edit_requested.emit()
 
 
 func _on_confirm() -> void:
