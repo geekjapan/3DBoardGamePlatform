@@ -99,6 +99,8 @@ func _start_match() -> void:
 	var session := GameSession.start()
 
 	_board_view = BoardView.new()
+	# チームのキャラクターにモデルがあれば駒として立てる。無ければ仮の見た目。
+	_board_view.visual_factory = _character_visual
 	add_child(_board_view)
 	_board_view.build_from(session.board())
 
@@ -159,6 +161,17 @@ func _start_match() -> void:
 
 func _on_open_settings() -> void:
 	_settings_panel.open_with(_settings, _speech_settings)
+
+
+func _character_visual(side: int, kind: int) -> Node3D:
+	## チーム割当のキャラクターに 3D モデルがあれば使う。
+	## 指定なし・読み込み失敗はここで null を返し、BoardView が仮の見た目に落とす。
+	if _catalog == null:
+		return null
+	var character := _catalog.character_for_kind(kind, side)
+	if character == null or character.model_path == "":
+		return null
+	return CharacterModel.create(character.model_path)
 
 
 func _process(_delta: float) -> void:

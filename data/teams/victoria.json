@@ -1,0 +1,12 @@
+{
+  "id": "victoria",
+  "display_name": "ヴィクトリア家政",
+  "assignments": {
+    "king": "莱卡恩",
+    "queen": "艾莲",
+    "rook": "凯撒",
+    "bishop": "柏妮思",
+    "knight": "青衣",
+    "pawn": "可琳"
+  }
+}

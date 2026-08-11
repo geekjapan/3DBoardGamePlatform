@@ -257,3 +257,186 @@ func test_camera_ignores_input_while_dialog_is_open() -> void:
 	check_eq(orbit.pan_offset, Vector3.ZERO, "ダイアログ表示中は平行移動しない")
 
 	orbit.free()
+
+
+func test_character_model_falls_back_when_missing() -> void:
+	# モデル欠品でクラッシュさせない。呼び出し側が仮の見た目に落とせるよう null を返す。
+	check(CharacterModel.create("") == null, "指定なしは null")
+	check(CharacterModel.create("res://assets/models/does_not_exist.vrm") == null, "実体が無ければ null")
+	check(not CharacterModel.is_available("res://assets/models/does_not_exist.vrm"), "利用不可と分かる")
+
+
+func test_board_view_falls_back_to_placeholder_when_factory_returns_null() -> void:
+	# キャラクターにモデルが無い駒は、仮の見た目のまま盤に並ぶ。
+	var view := BoardView.new()
+	view.visual_factory = func(_side: int, _kind: int) -> Node3D:
+		return null
+	view.build_from(Board.chess_start())
+	check_eq(view.piece_count(), 32, "全駒が並ぶ")
+	var node := view.piece_node_at(Vector2i(4, 0))
+	check(node.has_model(), "見た目が付いている")
+	var visual := node.model_slot().get_child(0) as Node3D
+	check(not visual.has_meta(CharacterModel.META_NEEDS_FIT), "仮の見た目(実寸合わせ不要)")
+	view.free()
+
+
+func test_character_model_fit_is_idempotent() -> void:
+	# 2 回目で等倍に戻る実装だと、盤更新のたびにモデルが原寸へ跳ね上がる。
+	var model := Node3D.new()
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.5, 2.0, 0.5)   # 高さ 2.0 の箱
+	mesh.mesh = box
+	mesh.position = Vector3(0.0, 1.0, 0.0)  # 足元が原点に来るよう持ち上げる
+	model.add_child(mesh)
+
+	CharacterModel.fit_to_square(model, 1.0)
+	var first_scale := model.scale.x
+	var expected := CharacterModel.TARGET_HEIGHT / 2.0
+	check(absf(first_scale - expected) < 0.001, "目標高さに合わせる (got %.3f)" % first_scale)
+
+	CharacterModel.fit_to_square(model, 1.0)
+	check(absf(model.scale.x - first_scale) < 0.001, "2 回目も同じ倍率")
+	CharacterModel.fit_to_square(model, 1.0)
+	check(absf(model.scale.x - first_scale) < 0.001, "3 回目も同じ倍率")
+	check(absf(model.position.y) < 0.01, "足元が盤面に接地する")
+	model.free()
+
+
+func test_animator_needs_humanoid_mapping() -> void:
+	# 仮の見た目や humanoid でないモデルには付かない(静止のまま動作する)。
+	var plain := Node3D.new()
+	check(CharacterAnimator.attach_to(plain) == null, "骨格が無ければ付かない")
+	plain.free()
+	check(CharacterAnimator.attach_to(null) == null, "null でも落ちない")
+
+
+func test_animator_resolves_bones_by_role_not_by_name() -> void:
+	# 1 つの動きの定義をリグの違うモデルで使い回す肝。ボーン名を直接引くと、
+	# 命名の違うモデル(試験用モデルは LeftUpperArm の実体が "Left arm")で
+	# 腕が動かないまま気づけない。
+	var skeleton := Skeleton3D.new()
+	skeleton.add_bone("Hips")
+	skeleton.add_bone("背骨")          # 標準名と違う名前
+	skeleton.add_bone("左腕")
+
+	var profile := SkeletonProfileHumanoid.new()
+	var bone_map := BoneMap.new()
+	bone_map.profile = profile
+	bone_map.set_skeleton_bone_name("Spine", "背骨")
+	bone_map.set_skeleton_bone_name("LeftUpperArm", "左腕")
+
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "Spine"),
+		skeleton.find_bone("背骨"),
+		"標準名で引けなければ BoneMap 経由で解決する"
+	)
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "LeftUpperArm"),
+		skeleton.find_bone("左腕"),
+		"腕も役割から解決できる"
+	)
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "Hips"),
+		skeleton.find_bone("Hips"),
+		"標準名のままの骨も引ける"
+	)
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "Head"),
+		-1,
+		"存在しない役割は -1(その役割を飛ばす)"
+	)
+	skeleton.free()
+
+
+func test_capture_animation_finishes_before_piece_disappears() -> void:
+	# アニメータ側が駒本体の Tween より長いと、倒れ切る前にノードが消えて
+	# 「倒れた」と読めない。実際に 0.5 秒 対 0.35 秒でずれていた。
+	check(
+		CharacterAnimator.CAPTURE_DURATION <= PieceNode.CAPTURE_DURATION_SEC,
+		"取られ演出が駒の寿命に収まる (%.2f <= %.2f)"
+			% [CharacterAnimator.CAPTURE_DURATION, PieceNode.CAPTURE_DURATION_SEC]
+	)
+	check(
+		CharacterAnimator.MOVE_DURATION <= PieceNode.MOVE_DURATION_SEC,
+		"移動演出も移動時間に収まる"
+	)
+
+
+func test_pieces_face_the_opponent() -> void:
+	# 全員が同じ方を向いていた。さらに VRM 規約(-Z 向き)を決め打ちにしたら、
+	# MMD から変換したモデルは +Z のままで全員が盤の外を向いた。素の向きは
+	# 骨の左右で実測し、白が -Z を、黒が +Z を向くように補正する。
+	var view := BoardView.new()
+	view.visual_factory = func(_side: int, _kind: int) -> Node3D:
+		var stand_in := Node3D.new()
+		stand_in.set_meta(CharacterModel.META_NEEDS_FIT, true)
+		return stand_in
+	view.build_from(Board.chess_start())
+
+	# 骨が無いモデルは -Z 向き扱い。白はそのまま、黒が反転する。
+	var white := view.piece_node_at(Vector2i(4, 0)).model_slot().get_child(0) as Node3D
+	var black := view.piece_node_at(Vector2i(4, 7)).model_slot().get_child(0) as Node3D
+	check(absf(white.rotation.y) < 0.001, "白はそのまま黒を向く")
+	check(absf(black.rotation.y - PI) < 0.001, "黒は反転して白を向く")
+	check(not CharacterAnimator.faces_plus_z(white), "骨が無ければ -Z 向き扱い")
+	view.free()
+
+
+func test_facing_is_measured_from_bones_not_assumed() -> void:
+	# 左手が +X 側にあるモデルは +Z を向いている。規約を信じると逆を向く。
+	var skeleton := Skeleton3D.new()
+	skeleton.add_bone("LeftHand")
+	skeleton.add_bone("RightHand")
+	skeleton.set_bone_rest(0, Transform3D(Basis(), Vector3(0.5, 1.0, 0.0)))
+	skeleton.set_bone_rest(1, Transform3D(Basis(), Vector3(-0.5, 1.0, 0.0)))
+	skeleton.reset_bone_poses()
+	var plus_z := Node3D.new()
+	plus_z.add_child(skeleton)
+	check(CharacterAnimator.faces_plus_z(plus_z), "左手が +X 側なら +Z 向き")
+
+	# 左右を入れ替えれば -Z 向きと判定される。
+	skeleton.set_bone_rest(0, Transform3D(Basis(), Vector3(-0.5, 1.0, 0.0)))
+	skeleton.set_bone_rest(1, Transform3D(Basis(), Vector3(0.5, 1.0, 0.0)))
+	skeleton.reset_bone_poses()
+	check(not CharacterAnimator.faces_plus_z(plus_z), "左手が -X 側なら -Z 向き")
+	plus_z.free()
+
+
+func test_base_pose_lowers_arms_from_t_pose() -> void:
+	# VRM は T ポーズが基準なので、素立ちのままだと腕が真横に広がった
+	# カカシになる。素立ちの補正が抜けたら気づけるようにする。
+	var base: Dictionary = CharacterAnimator.BASE_POSE
+	for role in ["LeftUpperArm", "RightUpperArm"]:
+		check(base.has(role), "%s に素立ちの補正がある" % role)
+		var degrees: Vector3 = base[role]
+		# 上腕は X の正回転で下がる(左右とも同符号)。実測で確認済み。
+		check(degrees.x > 30.0, "%s を下ろしている (X=%.0f度)" % [role, degrees.x])
+	# 左右で下ろす量が違うと片腕だけ上がって見える。
+	check_eq(
+		(base["LeftUpperArm"] as Vector3).x,
+		(base["RightUpperArm"] as Vector3).x,
+		"左右で下ろす量が同じ"
+	)
+
+
+func test_character_pieces_stay_grounded_while_idle() -> void:
+	# 待機の上下動は駒ノードごと動かすので、立っているキャラクターだと
+	# 足が地面から浮く。呼吸は骨格側が出すため、キャラのときは切る。
+	var node := PieceNode.new(Piece.Side.WHITE, Piece.Kind.KING, Vector2i(4, 0))
+	var stand_in := Node3D.new()
+	node.set_model(stand_in)
+	var rest := Vector3(1.0, 0.0, 2.0)
+	node.snap_to(rest)
+
+	# 仮の見た目(アニメータ無し)は従来どおり上下する。
+	node._process(0.2)
+	check(node.position.y != rest.y, "プリミティブは浮遊する")
+
+	# CharacterAnimator が居るときは動かさない。
+	var animator := CharacterAnimator.new()
+	stand_in.add_child(animator)
+	node.snap_to(rest)
+	node._process(0.2)
+	check_eq(node.position, rest, "キャラクターは接地したまま")
+	node.free()

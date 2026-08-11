@@ -1,0 +1,12 @@
+{
+  "id": "cunning_hares",
+  "display_name": "邪兎屋",
+  "assignments": {
+    "king": "安比",
+    "queen": "妮可",
+    "rook": "比利",
+    "bishop": "猫又",
+    "knight": "耀嘉音",
+    "pawn": "苍角"
+  }
+}

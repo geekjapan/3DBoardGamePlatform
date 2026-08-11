@@ -62,6 +62,11 @@ func _init(
 func _process(delta: float) -> void:
 	if _anim_state != AnimState.IDLE:
 		return
+	if _find_character_animator(_model_slot) != null:
+		# 立っているキャラクターを上下させると足が地面から浮く。
+		# 生きている感じは CharacterAnimator の呼吸(体の姿勢)が出す。
+		position = _rest_position
+		return
 	_idle_phase += delta * IDLE_BOB_SPEED
 	var bob := sin(_idle_phase) * IDLE_BOB_AMPLITUDE
 	position = Vector3(_rest_position.x, _rest_position.y + bob, _rest_position.z)
@@ -164,7 +169,10 @@ func play_capture() -> void:
 		# 代替: 沈みつつ透明化(メッシュ material を触る)。
 		_fade_meshes(0.0, CAPTURE_DURATION_SEC)
 	tween.tween_property(self, "position", end_pos, CAPTURE_DURATION_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(self, "scale", Vector3(0.15, 0.15, 0.15), CAPTURE_DURATION_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if _find_character_animator(_model_slot) == null:
+		# プリミティブの駒は縮んで消える。キャラクターは縮めない。
+		# 縮小と転倒を同時にやると、倒れる前に小さくなって何が起きたか読めない。
+		tween.tween_property(self, "scale", Vector3(0.15, 0.15, 0.15), CAPTURE_DURATION_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.finished.connect(_on_capture_tween_finished, CONNECT_ONE_SHOT)
 
 
@@ -246,8 +254,34 @@ func _collect_mesh_instances(node: Node) -> Array:
 	return out
 
 
+func _drive_character_animator(candidates: PackedStringArray) -> void:
+	var animator := _find_character_animator(_model_slot)
+	if animator == null:
+		return
+	if candidates == CAPTURE_CLIP_CANDIDATES:
+		animator.play(CharacterAnimator.Clip.CAPTURE)
+	elif candidates == MOVE_CLIP_CANDIDATES:
+		animator.play(CharacterAnimator.Clip.MOVE)
+	else:
+		animator.play(CharacterAnimator.Clip.IDLE)
+
+
+static func _find_character_animator(root: Node) -> CharacterAnimator:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is CharacterAnimator:
+			return n as CharacterAnimator
+		for c in n.get_children():
+			stack.append(c)
+	return null
+
+
 func _try_play_model_clip(candidates: PackedStringArray, only_if_idle_loop: bool) -> bool:
 	## 対応クリップがあれば再生。無ければ false(呼び出し側が代替へ)。
+	## AnimationPlayer を持たない VRM には、humanoid の役割で動く共通アニメを載せる。
+	## 位置の演出は呼び出し側の Tween が持つので、ここは体の姿勢だけを切り替える。
+	_drive_character_animator(candidates)
 	var player := _find_animation_player(_model_slot)
 	if player == null:
 		return false

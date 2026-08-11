@@ -1,0 +1,36 @@
+{
+  "id": "Brujas",
+  "display_name": "Brujas",
+  "personality": "",
+  "model": "res://assets/models/Brujas.vrm",
+  "lines": {
+    "moved": [
+      "行くよ。",
+      "ここだね。",
+      "次はどうする?"
+    ],
+    "captured": [
+      "もらった!",
+      "そこだ!",
+      "決まりだね。"
+    ],
+    "captured_by": [
+      "やられた…!",
+      "くっ…!",
+      "まだ終わらない。"
+    ],
+    "check": [
+      "王手!",
+      "逃げ場はある?",
+      "詰めるよ。"
+    ],
+    "promoted": [
+      "力が湧いてくる!",
+      "ここからが本番。"
+    ],
+    "game_over": [
+      "いい勝負だった。",
+      "また指そう。"
+    ]
+  }
+}

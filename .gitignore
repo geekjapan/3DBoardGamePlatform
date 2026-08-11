@@ -8,3 +8,8 @@ export_presets.cfg
 .orca/
 
 .DS_Store
+
+# キャラクターモデルの実体。配布モデルはライセンス上コミットできず、
+# 数十 MB になるため各自が assets/models/ に置く。手順は docs/model-import.md。
+assets/models/*
+!assets/models/.gitkeep

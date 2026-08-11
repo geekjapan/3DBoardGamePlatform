@@ -23,3 +23,7 @@ window/stretch/aspect="expand"
 ; TTS を使う宣言(発話の音声モード)。macOS では無くても動いたが、
 ; 他プラットフォームでは有効化が必要なため明示しておく。
 general/text_to_speech=true
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/vrm/plugin.cfg")

@@ -198,6 +198,7 @@ func _parse_character_file(path: String) -> CharacterDef:
 		return null
 	def.display_name = str(dict.get("display_name", def.id)).strip_edges()
 	def.personality = str(dict.get("personality", "")).strip_edges()
+	def.model_path = str(dict.get("model", "")).strip_edges()
 	var lines_raw: Variant = dict.get("lines", {})
 	if typeof(lines_raw) == TYPE_DICTIONARY:
 		def.lines = _normalize_lines(lines_raw as Dictionary)
