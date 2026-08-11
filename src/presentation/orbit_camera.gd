@@ -3,6 +3,9 @@ extends Node3D
 
 ## 盤の周囲を回り込むオービットカメラ。
 ## 左ドラッグで回転、ホイールでズーム。ズームは min/max で盤を見失わない。
+## 左ドラッグは閾値を超えてから回転開始し、クリック選択(#5)と共存する。
+
+const DRAG_THRESHOLD_PX := 6.0
 
 @export var distance: float = 12.0
 @export var min_distance: float = 5.0
@@ -15,7 +18,9 @@ extends Node3D
 @export var zoom_step: float = 0.9
 
 var _camera: Camera3D
-var _dragging: bool = false
+var _button_down: bool = false
+var _orbit_active: bool = false
+var _press_pos: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
@@ -43,16 +48,27 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
-			# 左ドラッグ開始/終了だけ記録。クリック選択(#5)を潰さないよう handled にしない。
-			_dragging = mb.pressed
+			# 閾値未満はクリック扱い(GameController と同じ DRAG_THRESHOLD_PX)。
+			# handled にしないので release を双方が受け取れる。
+			if mb.pressed:
+				_button_down = true
+				_orbit_active = false
+				_press_pos = mb.position
+			else:
+				_button_down = false
+				_orbit_active = false
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
 			set_distance(distance - zoom_step)
 			get_viewport().set_input_as_handled()
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
 			set_distance(distance + zoom_step)
 			get_viewport().set_input_as_handled()
-	elif event is InputEventMouseMotion and _dragging:
+	elif event is InputEventMouseMotion and _button_down:
 		var mm := event as InputEventMouseMotion
+		if not _orbit_active:
+			if _press_pos.distance_to(mm.position) <= DRAG_THRESHOLD_PX:
+				return
+			_orbit_active = true
 		yaw_degrees -= mm.relative.x * orbit_sensitivity
 		pitch_degrees = clampf(
 			pitch_degrees - mm.relative.y * orbit_sensitivity,

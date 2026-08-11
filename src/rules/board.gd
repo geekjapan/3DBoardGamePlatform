@@ -166,6 +166,12 @@ func is_stalemate() -> bool:
 	return legal_moves().is_empty() and not in_check()
 
 
+func king_square(side: int = -1) -> Vector2i:
+	## 指定側(省略時は手番側)の玉位置。いなければ NO_SQUARE。
+	var s := side_to_move if side < 0 else side
+	return _find_king(s)
+
+
 func perft(depth: int) -> int:
 	if depth == 0:
 		return 1
