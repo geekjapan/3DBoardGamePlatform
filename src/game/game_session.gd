@@ -11,7 +11,17 @@ const NO_SQUARE := Vector2i(-1, -1)
 const UNDO_PLIES := 2
 
 
-var _board: Board
+const _BOARD_METHODS := [
+	"legal_moves",
+	"apply",
+	"piece_at",
+	"in_check",
+	"is_checkmate",
+	"is_stalemate",
+]
+
+
+var _board: Object
 ## 着手前の盤を積む。undo で 2 枚戻す。
 var _history: Array = []
 var _selected: Vector2i = NO_SQUARE
@@ -25,13 +35,17 @@ static func start() -> GameSession:
 	return from_board(Board.chess_start())
 
 
-static func from_board(board: Board) -> GameSession:
+static func from_board(board: Object) -> GameSession:
+	var validated := _validated_board(board)
+	if validated == null:
+		return null
 	var s := GameSession.new()
-	s._board = board
+	s._board = validated
 	return s
 
 
-func board() -> Board:
+func board() -> Object:
+	## 実体は生成時と apply 後に検証済みの盤 Object。
 	return _board
 
 
@@ -56,6 +70,16 @@ func legal_targets() -> Array:
 		if not seen.has(to):
 			seen[to] = true
 			out.append(to)
+	return out
+
+
+func legal_moves_to(to: Vector2i) -> Array:
+	## 選択中の from から同じ to へ行く完全 Move をすべて返す。
+	var out: Array = []
+	for candidate in _legal_from_selected:
+		var move := candidate as Move
+		if move.to == to:
+			out.append(move)
 	return out
 
 
@@ -92,7 +116,7 @@ func last_move_event() -> MoveEvent:
 func select(pos: Vector2i) -> bool:
 	if is_over():
 		return false
-	var piece := _board.piece_at(pos)
+	var piece: Piece = _board.piece_at(pos)
 	if piece == null or piece.side != _board.side_to_move:
 		return false
 	_selected = pos
@@ -108,10 +132,10 @@ func deselect() -> void:
 func try_move_to(pos: Vector2i) -> bool:
 	if is_over() or not is_selected():
 		return false
-	var move := _find_legal_move(pos)
-	if move == null:
+	var candidates := legal_moves_to(pos)
+	if candidates.size() != 1:
 		return false
-	return _commit_move(move) != null
+	return _commit_move(candidates[0] as Move) != null
 
 
 func apply_move(move: Move) -> MoveEvent:
@@ -137,7 +161,7 @@ func click(pos: Vector2i) -> void:
 		return
 	if try_move_to(pos):
 		return
-	var piece := _board.piece_at(pos)
+	var piece: Piece = _board.piece_at(pos)
 	if piece != null and piece.side == _board.side_to_move:
 		select(pos)
 		return
@@ -153,15 +177,19 @@ func undo() -> bool:
 		return false
 	# 1 往復 = 直近 2 プライを捨て、その手前の盤へ。
 	_history.pop_back()
-	_board = _history.pop_back() as Board
+	_board = _history.pop_back() as Object
 	deselect()
 	return true
 
 
 func _commit_move(move: Move) -> MoveEvent:
 	var event := _build_move_event(move)
+	var next_board: Variant = _board.apply(move)
+	var validated_next := _validated_board(next_board)
+	if validated_next == null:
+		return null
 	_history.append(_board)
-	_board = _board.apply(move)
+	_board = validated_next
 	event.is_check = _board.in_check()
 	event.is_checkmate = _board.is_checkmate()
 	event.is_stalemate = _board.is_stalemate()
@@ -176,18 +204,18 @@ func _build_move_event(move: Move) -> MoveEvent:
 	## 着手前の盤から、移動・取り・成りの事実を拾う。
 	var event := MoveEvent.new()
 	event.move = move
-	var mover := _board.piece_at(move.from)
+	var mover: Piece = _board.piece_at(move.from)
 	assert(mover != null, "合法手なのに from に駒が無い")
 	event.mover_side = mover.side
 	event.mover_kind = mover.kind
 	if move.is_en_passant:
 		var cap_pos := Vector2i(move.to.x, move.from.y)
-		var cap := _board.piece_at(cap_pos)
+		var cap: Piece = _board.piece_at(cap_pos)
 		if cap != null:
 			event.captured = cap.duplicate_piece()
 			event.captured_square = cap_pos
 	else:
-		var cap2 := _board.piece_at(move.to)
+		var cap2: Piece = _board.piece_at(move.to)
 		if cap2 != null:
 			event.captured = cap2.duplicate_piece()
 			event.captured_square = move.to
@@ -204,14 +232,6 @@ func _cache_legal_from_selected() -> void:
 			_legal_from_selected.append(move)
 
 
-func _find_legal_move(to: Vector2i) -> Move:
-	for m in _legal_from_selected:
-		var move := m as Move
-		if move.to == to:
-			return move
-	return null
-
-
 func _find_matching_legal(want: Move) -> Move:
 	## from / to / promotion で合法手を探す(UCI 相当)。フラグの有無に依存しない。
 	for m in _board.legal_moves():
@@ -219,3 +239,26 @@ func _find_matching_legal(want: Move) -> Move:
 		if move.from == want.from and move.to == want.to and move.promotion == want.promotion:
 			return move
 	return null
+
+
+static func _validated_board(value: Variant) -> Object:
+	if value == null:
+		assert(false, "GameSession board must not be null")
+		return null
+	if not value is Object:
+		assert(false, "GameSession board must be an Object")
+		return null
+	var board := value as Object
+	for method_name in _BOARD_METHODS:
+		if not board.has_method(method_name):
+			assert(false, "GameSession board missing method: %s" % method_name)
+			return null
+	var has_side_to_move := false
+	for property in board.get_property_list():
+		if property["name"] == "side_to_move":
+			has_side_to_move = true
+			break
+	if not has_side_to_move:
+		assert(false, "GameSession board missing property: side_to_move")
+		return null
+	return board
