@@ -1,0 +1,12 @@
+{
+  "id": "hotbloods",
+  "display_name": "熱血軍団",
+  "assignments": {
+    "pawn": "hotblood",
+    "knight": "hotblood",
+    "bishop": "hotblood",
+    "rook": "hotblood",
+    "queen": "hotblood",
+    "king": "hotblood"
+  }
+}

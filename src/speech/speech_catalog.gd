@@ -2,9 +2,11 @@ class_name SpeechCatalog
 extends RefCounted
 
 ## data/ 以下のテキスト(JSON)から Character と Team を読み込む。
+## 複数チームをディレクトリから読み、対局時は陣営ごとに1つ選ぶ。
 ## 読み込み境界で検証し、壊れた定義はスキップして続行する。
 
 const DEFAULT_CHARACTERS_DIR := "res://data/characters"
+const DEFAULT_TEAMS_DIR := "res://data/teams"
 const DEFAULT_TEAM_PATH := "res://data/teams/default.json"
 
 const KIND_NAMES: PackedStringArray = [
@@ -13,17 +15,31 @@ const KIND_NAMES: PackedStringArray = [
 
 ## id → CharacterDef
 var characters: Dictionary = {}
+## id → TeamDef
+var teams: Dictionary = {}
+## 後方互換用の単一チーム参照(既定チーム、または明示的に差し替えたもの)。
 var team: TeamDef = TeamDef.new()
+
+## 対局で使う陣営ごとのチーム ID。未設定や未知 ID は team にフォールバック。
+var white_team_id: String = ""
+var black_team_id: String = ""
 
 
 static func load_default() -> SpeechCatalog:
-	return load_from(DEFAULT_CHARACTERS_DIR, DEFAULT_TEAM_PATH)
+	return load_from(DEFAULT_CHARACTERS_DIR, DEFAULT_TEAMS_DIR)
 
 
-static func load_from(characters_dir: String, team_path: String) -> SpeechCatalog:
+static func load_from(characters_dir: String, teams_path: String) -> SpeechCatalog:
+	## teams_path はディレクトリ(全チーム)でも単一 JSON ファイルでも可。
 	var catalog := SpeechCatalog.new()
 	catalog._load_characters_dir(characters_dir)
-	catalog.team = catalog._load_team(team_path)
+	if _is_directory(teams_path):
+		catalog._load_teams_dir(teams_path)
+	else:
+		var one := catalog._load_team(teams_path)
+		if one.id != "" and one.id != "empty":
+			catalog.teams[one.id] = one
+	catalog._ensure_default_team_selection()
 	return catalog
 
 
@@ -42,14 +58,92 @@ static func kind_name(kind: int) -> String:
 	return KIND_NAMES[kind]
 
 
+static func _is_directory(path: String) -> bool:
+	var dir := DirAccess.open(path)
+	return dir != null
+
+
 func character(character_id: String) -> CharacterDef:
 	if character_id == "" or not characters.has(character_id):
 		return null
 	return characters[character_id] as CharacterDef
 
 
-func character_for_kind(kind: int) -> CharacterDef:
-	return character(team.character_id_for_kind(kind))
+func team_by_id(team_id: String) -> TeamDef:
+	if team_id == "" or not teams.has(team_id):
+		return null
+	return teams[team_id] as TeamDef
+
+
+func team_ids() -> PackedStringArray:
+	var ids := PackedStringArray()
+	for key in teams.keys():
+		ids.append(str(key))
+	ids.sort()
+	return ids
+
+
+func team_for_side(side: int) -> TeamDef:
+	## 陣営に選ばれたチーム。未知 ID や未設定は後方互換の team を返す。
+	var id := white_team_id if side == Piece.Side.WHITE else black_team_id
+	var found := team_by_id(id)
+	if found != null:
+		return found
+	return team
+
+
+func set_side_teams(p_white_team_id: String, p_black_team_id: String) -> void:
+	## 両陣営に同じチーム ID を渡しても成立する。
+	white_team_id = p_white_team_id.strip_edges()
+	black_team_id = p_black_team_id.strip_edges()
+	if teams.has(white_team_id):
+		team = teams[white_team_id] as TeamDef
+	elif not teams.is_empty():
+		team = teams[team_ids()[0]] as TeamDef
+
+
+func character_for_kind(kind: int, side: int = -1) -> CharacterDef:
+	## side 省略時は後方互換の単一 team。指定時は陣営チームを使う。
+	if side < 0:
+		return character(team.character_id_for_kind(kind))
+	return character(team_for_side(side).character_id_for_kind(kind))
+
+
+func character_id_for_side_kind(side: int, kind: int) -> String:
+	## 盤上の駒(陣営+駒種)に乗るキャラクター ID。未割当は空文字。
+	return team_for_side(side).character_id_for_kind(kind)
+
+
+func lineup_for_side(side: int) -> Dictionary:
+	## 駒種整数 → キャラクター ID。選んだチームどおりの並び(論理)。
+	var out: Dictionary = {}
+	var t := team_for_side(side)
+	for kind in [
+		Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
+		Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
+	]:
+		var cid := t.character_id_for_kind(kind)
+		if cid != "":
+			out[kind] = cid
+	return out
+
+
+func _ensure_default_team_selection() -> void:
+	if teams.is_empty():
+		team = TeamDef.new()
+		team.id = "empty"
+		team.display_name = "empty"
+		white_team_id = ""
+		black_team_id = ""
+		return
+	var preferred := "default"
+	if not teams.has(preferred):
+		preferred = team_ids()[0]
+	team = teams[preferred] as TeamDef
+	if white_team_id == "" or not teams.has(white_team_id):
+		white_team_id = preferred
+	if black_team_id == "" or not teams.has(black_team_id):
+		black_team_id = preferred
 
 
 func _load_characters_dir(dir_path: String) -> void:
@@ -66,6 +160,24 @@ func _load_characters_dir(dir_path: String) -> void:
 			var def := _parse_character_file(full)
 			if def != null and def.id != "":
 				characters[def.id] = def
+		file_name = dir.get_next()
+	dir.list_dir_end()
+
+
+func _load_teams_dir(dir_path: String) -> void:
+	teams.clear()
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		push_warning("SpeechCatalog: チームディレクトリを開けない: %s" % dir_path)
+		return
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if not dir.current_is_dir() and file_name.ends_with(".json"):
+			var full := dir_path.path_join(file_name)
+			var def := _load_team(full)
+			if def != null and def.id != "" and def.id != "empty":
+				teams[def.id] = def
 		file_name = dir.get_next()
 	dir.list_dir_end()
 
