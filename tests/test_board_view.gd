@@ -257,3 +257,47 @@ func test_camera_ignores_input_while_dialog_is_open() -> void:
 	check_eq(orbit.pan_offset, Vector3.ZERO, "ダイアログ表示中は平行移動しない")
 
 	orbit.free()
+
+
+func test_character_model_falls_back_when_missing() -> void:
+	# モデル欠品でクラッシュさせない。呼び出し側が仮の見た目に落とせるよう null を返す。
+	check(CharacterModel.create("") == null, "指定なしは null")
+	check(CharacterModel.create("res://assets/models/does_not_exist.vrm") == null, "実体が無ければ null")
+	check(not CharacterModel.is_available("res://assets/models/does_not_exist.vrm"), "利用不可と分かる")
+
+
+func test_board_view_falls_back_to_placeholder_when_factory_returns_null() -> void:
+	# キャラクターにモデルが無い駒は、仮の見た目のまま盤に並ぶ。
+	var view := BoardView.new()
+	view.visual_factory = func(_side: int, _kind: int) -> Node3D:
+		return null
+	view.build_from(Board.chess_start())
+	check_eq(view.piece_count(), 32, "全駒が並ぶ")
+	var node := view.piece_node_at(Vector2i(4, 0))
+	check(node.has_model(), "見た目が付いている")
+	var visual := node.model_slot().get_child(0) as Node3D
+	check(not visual.has_meta(CharacterModel.META_NEEDS_FIT), "仮の見た目(実寸合わせ不要)")
+	view.free()
+
+
+func test_character_model_fit_is_idempotent() -> void:
+	# 2 回目で等倍に戻る実装だと、盤更新のたびにモデルが原寸へ跳ね上がる。
+	var model := Node3D.new()
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(0.5, 2.0, 0.5)   # 高さ 2.0 の箱
+	mesh.mesh = box
+	mesh.position = Vector3(0.0, 1.0, 0.0)  # 足元が原点に来るよう持ち上げる
+	model.add_child(mesh)
+
+	CharacterModel.fit_to_square(model, 1.0)
+	var first_scale := model.scale.x
+	var expected := CharacterModel.TARGET_HEIGHT / 2.0
+	check(absf(first_scale - expected) < 0.001, "目標高さに合わせる (got %.3f)" % first_scale)
+
+	CharacterModel.fit_to_square(model, 1.0)
+	check(absf(model.scale.x - first_scale) < 0.001, "2 回目も同じ倍率")
+	CharacterModel.fit_to_square(model, 1.0)
+	check(absf(model.scale.x - first_scale) < 0.001, "3 回目も同じ倍率")
+	check(absf(model.position.y) < 0.01, "足元が盤面に接地する")
+	model.free()

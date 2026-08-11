@@ -33,5 +33,6 @@
       "ふふん、どう？",
       "褒めても…いいけど？"
     ]
-  }
+  },
+  "model": "res://assets/models/test_character.vrm"
 }

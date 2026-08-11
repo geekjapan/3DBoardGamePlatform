@@ -10,6 +10,9 @@ var id: String = ""
 var display_name: String = ""
 ## 性格の説明文。LLM 発話などの後続モード向けにも使う。
 var personality: String = ""
+## 3D モデルのパス(res://assets/models/xxx.vrm など)。空なら仮の見た目を使う。
+## 実ファイルが無い場合も仮の見た目に落ちる(欠品でクラッシュさせない)。
+var model_path: String = ""
 ## GameEvent キー → セリフ配列。キー例: moved / captured / captured_by / check / promoted / game_over。
 var lines: Dictionary = {}
 

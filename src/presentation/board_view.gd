@@ -43,8 +43,26 @@ func _init() -> void:
 	add_child(_pieces_root)
 
 
+## 駒の見た目を作る差し替え口。(side: int, kind: int) -> Node3D を返す。
+## 未設定なら仮の見た目。presentation が Character や Team を知らずに済むよう、
+## キャラクターモデルの解決は呼び出し側(main.gd)が Callable で差し込む。
+var visual_factory: Callable = Callable()
+
+
 func board() -> Board:
 	return _board
+
+
+func _apply_visual(node: PieceNode, piece: Piece) -> void:
+	var visual: Node3D = null
+	if visual_factory.is_valid():
+		visual = visual_factory.call(piece.side, piece.kind) as Node3D
+	if visual == null:
+		visual = PlaceholderVisual.create(piece.side, piece.kind)
+	node.set_model(visual)
+	# モデルはツリーに入ってから実寸が測れる。仮の見た目は等倍のまま。
+	if visual.has_meta(CharacterModel.META_NEEDS_FIT):
+		CharacterModel.fit_to_square(visual, square_size)
 
 
 func piece_count() -> int:
@@ -188,8 +206,9 @@ func sync_pieces() -> void:
 	for pos in unmatched:
 		var piece: Piece = desired[pos]
 		var node := PieceNode.new(piece.side, piece.kind, pos)
-		node.set_model(PlaceholderVisual.create(piece.side, piece.kind))
+		# 実寸合わせは AABB をワールドで測るため、ツリーに入れてから見た目を付ける。
 		_pieces_root.add_child(node)
+		_apply_visual(node, piece)
 		_place_node(node, pos, piece, false, false)
 		next_map[pos] = node
 
@@ -309,7 +328,7 @@ func _place_node(
 	node.name = "Piece_%d_%d" % [pos.x, pos.y]
 	var world := BoardLayout.square_to_world(pos, square_size)
 	if appearance_changed or kind_changed:
-		node.set_model(PlaceholderVisual.create(piece.side, piece.kind))
+		_apply_visual(node, piece)
 	if animate:
 		node.animate_move_to(world)
 	else:
