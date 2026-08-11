@@ -246,8 +246,34 @@ func _collect_mesh_instances(node: Node) -> Array:
 	return out
 
 
+func _drive_character_animator(candidates: PackedStringArray) -> void:
+	var animator := _find_character_animator(_model_slot)
+	if animator == null:
+		return
+	if candidates == CAPTURE_CLIP_CANDIDATES:
+		animator.play(CharacterAnimator.Clip.CAPTURE)
+	elif candidates == MOVE_CLIP_CANDIDATES:
+		animator.play(CharacterAnimator.Clip.MOVE)
+	else:
+		animator.play(CharacterAnimator.Clip.IDLE)
+
+
+static func _find_character_animator(root: Node) -> CharacterAnimator:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is CharacterAnimator:
+			return n as CharacterAnimator
+		for c in n.get_children():
+			stack.append(c)
+	return null
+
+
 func _try_play_model_clip(candidates: PackedStringArray, only_if_idle_loop: bool) -> bool:
 	## 対応クリップがあれば再生。無ければ false(呼び出し側が代替へ)。
+	## AnimationPlayer を持たない VRM には、humanoid の役割で動く共通アニメを載せる。
+	## 位置の演出は呼び出し側の Tween が持つので、ここは体の姿勢だけを切り替える。
+	_drive_character_animator(candidates)
 	var player := _find_animation_player(_model_slot)
 	if player == null:
 		return false

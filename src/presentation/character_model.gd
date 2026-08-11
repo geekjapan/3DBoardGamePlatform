@@ -40,6 +40,8 @@ static func create(path: String) -> Node3D:
 		return null
 	var model := node as Node3D
 	model.set_meta(META_NEEDS_FIT, true)
+	# humanoid の対応が取れるモデルには共通の動きを載せる。取れなければ静止のまま。
+	CharacterAnimator.attach_to(model)
 	return model
 
 

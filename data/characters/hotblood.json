@@ -33,5 +33,6 @@
       "完勝だ！",
       "やったね、勝利だ！"
     ]
-  }
+  },
+  "model": "res://assets/models/anby.vrm"
 }

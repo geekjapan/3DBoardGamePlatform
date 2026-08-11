@@ -301,3 +301,49 @@ func test_character_model_fit_is_idempotent() -> void:
 	check(absf(model.scale.x - first_scale) < 0.001, "3 回目も同じ倍率")
 	check(absf(model.position.y) < 0.01, "足元が盤面に接地する")
 	model.free()
+
+
+func test_animator_needs_humanoid_mapping() -> void:
+	# 仮の見た目や humanoid でないモデルには付かない(静止のまま動作する)。
+	var plain := Node3D.new()
+	check(CharacterAnimator.attach_to(plain) == null, "骨格が無ければ付かない")
+	plain.free()
+	check(CharacterAnimator.attach_to(null) == null, "null でも落ちない")
+
+
+func test_animator_resolves_bones_by_role_not_by_name() -> void:
+	# 1 つの動きの定義をリグの違うモデルで使い回す肝。ボーン名を直接引くと、
+	# 命名の違うモデル(試験用モデルは LeftUpperArm の実体が "Left arm")で
+	# 腕が動かないまま気づけない。
+	var skeleton := Skeleton3D.new()
+	skeleton.add_bone("Hips")
+	skeleton.add_bone("背骨")          # 標準名と違う名前
+	skeleton.add_bone("左腕")
+
+	var profile := SkeletonProfileHumanoid.new()
+	var bone_map := BoneMap.new()
+	bone_map.profile = profile
+	bone_map.set_skeleton_bone_name("Spine", "背骨")
+	bone_map.set_skeleton_bone_name("LeftUpperArm", "左腕")
+
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "Spine"),
+		skeleton.find_bone("背骨"),
+		"標準名で引けなければ BoneMap 経由で解決する"
+	)
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "LeftUpperArm"),
+		skeleton.find_bone("左腕"),
+		"腕も役割から解決できる"
+	)
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "Hips"),
+		skeleton.find_bone("Hips"),
+		"標準名のままの骨も引ける"
+	)
+	check_eq(
+		CharacterAnimator._find_bone_for_role(skeleton, bone_map, "Head"),
+		-1,
+		"存在しない役割は -1(その役割を飛ばす)"
+	)
+	skeleton.free()
