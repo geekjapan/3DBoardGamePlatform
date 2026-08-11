@@ -331,7 +331,7 @@ func _place_node(
 	var kind_changed := node.piece_kind != piece.kind
 	node.piece_kind = piece.kind
 	node.name = "Piece_%d_%d" % [pos.x, pos.y]
-	var world := BoardLayout.square_to_world(pos, square_size)
+	var world := BoardLayout.square_to_world(pos, _board_size(), square_size)
 	if appearance_changed or kind_changed:
 		_apply_visual(node, piece)
 	if animate:
@@ -352,7 +352,7 @@ func _add_highlight(pos: Vector2i, color: Color) -> void:
 	mat.roughness = 1.0
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh_inst.material_override = mat
-	var world := BoardLayout.square_to_world(pos, square_size)
+	var world := BoardLayout.square_to_world(pos, _board_size(), square_size)
 	mesh_inst.position = Vector3(world.x, HIGHLIGHT_Y, world.z)
 	_highlights_root.add_child(mesh_inst)
 	_highlight_nodes[pos] = mesh_inst
@@ -364,8 +364,9 @@ func _rebuild_tiles() -> void:
 		_tiles_root.remove_child(child)
 		child.free()
 
-	var width := _board.width if _board != null else 8
-	var height := _board.height if _board != null else 8
+	var width := _board.width
+	var height := _board.height
+	var board_size := Vector2i(width, height)
 	for y in range(height):
 		for x in range(width):
 			var pos := Vector2i(x, y)
@@ -378,6 +379,11 @@ func _rebuild_tiles() -> void:
 			mat.albedo_color = LIGHT_COLOR if BoardLayout.is_light_square(pos) else DARK_COLOR
 			mat.roughness = 0.85
 			tile.material_override = mat
-			var world := BoardLayout.square_to_world(pos, square_size)
+			var world := BoardLayout.square_to_world(pos, board_size, square_size)
 			tile.position = Vector3(world.x, -TILE_HEIGHT * 0.5, world.z)
 			_tiles_root.add_child(tile)
+
+
+func _board_size() -> Vector2i:
+	assert(_board != null, "build_from を先に呼ぶ")
+	return Vector2i(_board.width, _board.height)

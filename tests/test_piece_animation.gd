@@ -90,7 +90,7 @@ func test_board_view_move_preserves_identity_and_lands() -> void:
 	var after := view.piece_node_at(Vector2i(4, 3))
 	check(after != null, "e4 に駒")
 	check_eq(after.get_instance_id(), id_before, "同一インスタンス")
-	var expected := BoardLayout.square_to_world(Vector2i(4, 3))
+	var expected := BoardLayout.square_to_world(Vector2i(4, 3), Vector2i(8, 8))
 	check(after.rest_position().is_equal_approx(expected), "rest が移動先")
 	check(after.position.is_equal_approx(expected), "見た目位置も移動先(ツリー外)")
 	check(not view.is_animating(), "演出完了")
@@ -164,7 +164,7 @@ func test_board_view_interrupt_mid_animation_keeps_board_consistent() -> void:
 func test_board_view_idle_rest_position_stable() -> void:
 	## 待機は rest を基準にわずかに動くが、rest 自体はマス座標のまま。
 	var node := PieceNode.new(Piece.Side.WHITE, Piece.Kind.KING, Vector2i(4, 0))
-	var world := BoardLayout.square_to_world(Vector2i(4, 0))
+	var world := BoardLayout.square_to_world(Vector2i(4, 0), Vector2i(8, 8))
 	node.snap_to(world)
 	check(node.rest_position().is_equal_approx(world), "待機の rest はマス中心")
 	# _process を直接呼べないため、状態が IDLE であることだけ固定する。

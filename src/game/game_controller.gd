@@ -84,7 +84,7 @@ func _handle_click(screen_pos: Vector2) -> void:
 			if board.piece_at(pos) != null:
 				occupied.append(pos)
 	var sq := BoardLayout.pick_square(
-		origin, direction, occupied, board_view.square_size, board.width, board.height
+		origin, direction, occupied, Vector2i(board.width, board.height), board_view.square_size
 	)
 	if sq == BoardLayout.INVALID_SQUARE:
 		# 盤外クリックは選択解除(盤内の空きと同様の UX)。

@@ -185,7 +185,13 @@ func _spawn_bubble(utterance: SpeechUtterance) -> SpeechBubble:
 		_world_bubbles = Node3D.new()
 		_world_bubbles.name = "WorldSpeechBubbles"
 		add_child(_world_bubbles)
-	var world := BoardLayout.square_to_world(utterance.square, square_size)
+	# session が無ければ実盤寸法を確定できないため、座標変換は行わない。
+	# 実対局では session の実盤寸法を必ず座標変換へ渡す。
+	var world := Vector3.ZERO
+	if session != null:
+		var board := session.board()
+		var board_size := Vector2i(board.width, board.height)
+		world = BoardLayout.square_to_world(utterance.square, board_size, square_size)
 	_world_bubbles.add_child(bubble)
 	# ツリー外では global_position が使えないのでローカルで置く。
 	if _world_bubbles.is_inside_tree():

@@ -8,30 +8,39 @@ const DEFAULT_SQUARE_SIZE := 1.0
 const INVALID_SQUARE := Vector2i(-1, -1)
 
 
-static func square_to_world(pos: Vector2i, square_size: float = DEFAULT_SQUARE_SIZE) -> Vector3:
-	var half := (8.0 * square_size) * 0.5
-	var x := (float(pos.x) + 0.5) * square_size - half
-	var z := half - (float(pos.y) + 0.5) * square_size
+static func square_to_world(
+	pos: Vector2i,
+	board_size: Vector2i,
+	square_size: float = DEFAULT_SQUARE_SIZE,
+) -> Vector3:
+	var half_width := (float(board_size.x) * square_size) * 0.5
+	var half_height := (float(board_size.y) * square_size) * 0.5
+	var x := (float(pos.x) + 0.5) * square_size - half_width
+	var z := half_height - (float(pos.y) + 0.5) * square_size
 	return Vector3(x, 0.0, z)
 
 
-static func world_to_square(world: Vector3, square_size: float = DEFAULT_SQUARE_SIZE) -> Vector2i:
-	var half := (8.0 * square_size) * 0.5
-	var file := int(floor((world.x + half) / square_size))
-	var rank := int(floor((half - world.z) / square_size))
+static func world_to_square(
+	world: Vector3,
+	board_size: Vector2i,
+	square_size: float = DEFAULT_SQUARE_SIZE,
+) -> Vector2i:
+	var half_width := (float(board_size.x) * square_size) * 0.5
+	var half_height := (float(board_size.y) * square_size) * 0.5
+	var file := int(floor((world.x + half_width) / square_size))
+	var rank := int(floor((half_height - world.z) / square_size))
 	return Vector2i(file, rank)
 
 
-static func is_in_board(pos: Vector2i, width: int = 8, height: int = 8) -> bool:
-	return pos.x >= 0 and pos.x < width and pos.y >= 0 and pos.y < height
+static func is_in_board(pos: Vector2i, board_size: Vector2i) -> bool:
+	return pos.x >= 0 and pos.x < board_size.x and pos.y >= 0 and pos.y < board_size.y
 
 
 static func ray_to_square(
 	origin: Vector3,
 	direction: Vector3,
+	board_size: Vector2i,
 	square_size: float = DEFAULT_SQUARE_SIZE,
-	width: int = 8,
-	height: int = 8,
 ) -> Vector2i:
 	## y=0 平面との交点をマスに変換。盤外・平行・背面は INVALID_SQUARE。
 	if absf(direction.y) < 0.000001:
@@ -40,8 +49,8 @@ static func ray_to_square(
 	if t < 0.0:
 		return INVALID_SQUARE
 	var hit := origin + direction * t
-	var pos := world_to_square(hit, square_size)
-	if not is_in_board(pos, width, height):
+	var pos := world_to_square(hit, board_size, square_size)
+	if not is_in_board(pos, board_size):
 		return INVALID_SQUARE
 	return pos
 
@@ -50,9 +59,8 @@ static func pick_square(
 	origin: Vector3,
 	direction: Vector3,
 	occupied: Array,
+	board_size: Vector2i,
 	square_size: float = DEFAULT_SQUARE_SIZE,
-	width: int = 8,
-	height: int = 8,
 ) -> Vector2i:
 	## 駒の簡易球ヒットを優先し、外れたら盤面平面へフォールバック。
 	## occupied: 駒のある Vector2i の配列。
@@ -63,14 +71,14 @@ static func pick_square(
 	var piece_y := 0.35 * square_size
 	for item in occupied:
 		var pos: Vector2i = item
-		var center := square_to_world(pos, square_size) + Vector3(0.0, piece_y, 0.0)
+		var center := square_to_world(pos, board_size, square_size) + Vector3(0.0, piece_y, 0.0)
 		var t := _ray_sphere_t(origin, dir, center, radius)
 		if t >= 0.0 and t < best_t:
 			best_t = t
 			best = pos
 	if best != INVALID_SQUARE:
 		return best
-	return ray_to_square(origin, dir, square_size, width, height)
+	return ray_to_square(origin, dir, board_size, square_size)
 
 
 static func _ray_sphere_t(origin: Vector3, dir: Vector3, center: Vector3, radius: float) -> float:

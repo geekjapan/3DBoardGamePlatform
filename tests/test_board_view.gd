@@ -10,23 +10,66 @@ extends "res://tests/case.gd"
 ##
 ## 見た目の質・ドラッグ操作の感触は手動確認(親スペックの Testing Decisions)。
 
+const CHESS_BOARD_SIZE := Vector2i(8, 8)
+const SHOGI_BOARD_SIZE := Vector2i(9, 9)
+
 
 func test_layout_maps_corners_and_center() -> void:
-	var a1 := BoardLayout.square_to_world(Vector2i(0, 0))
-	var h1 := BoardLayout.square_to_world(Vector2i(7, 0))
-	var a8 := BoardLayout.square_to_world(Vector2i(0, 7))
-	var h8 := BoardLayout.square_to_world(Vector2i(7, 7))
-	var e4 := BoardLayout.square_to_world(Vector2i(4, 3))
+	var a1 := BoardLayout.square_to_world(Vector2i(0, 0), CHESS_BOARD_SIZE)
+	var h1 := BoardLayout.square_to_world(Vector2i(7, 0), CHESS_BOARD_SIZE)
+	var a8 := BoardLayout.square_to_world(Vector2i(0, 7), CHESS_BOARD_SIZE)
+	var h8 := BoardLayout.square_to_world(Vector2i(7, 7), CHESS_BOARD_SIZE)
+	check_eq(a1, Vector3(-3.5, 0.0, 3.5), "8x8 a1 の実測座標")
+	check_eq(h1, Vector3(3.5, 0.0, 3.5), "8x8 h1 の実測座標")
+	check_eq(a8, Vector3(-3.5, 0.0, -3.5), "8x8 a8 の実測座標")
+	check_eq(h8, Vector3(3.5, 0.0, -3.5), "8x8 h8 の実測座標")
 
-	check(a1.x < 0.0 and a1.z > 0.0, "a1 は -X / +Z 側")
-	check(h1.x > 0.0 and h1.z > 0.0, "h1 は +X / +Z 側")
-	check(a8.x < 0.0 and a8.z < 0.0, "a8 は -X / -Z 側")
-	check(h8.x > 0.0 and h8.z < 0.0, "h8 は +X / -Z 側")
-	check(absf(e4.x) < 0.6 and absf(e4.z) < 0.6, "e4 付近は原点近く")
+	for pos in [Vector2i(0, 0), Vector2i(7, 0), Vector2i(0, 7), Vector2i(7, 7)]:
+		var world := BoardLayout.square_to_world(pos, CHESS_BOARD_SIZE)
+		check_eq(BoardLayout.world_to_square(world, CHESS_BOARD_SIZE), pos, "8x8 往復 %s" % pos)
 
-	check_eq(BoardLayout.world_to_square(a1), Vector2i(0, 0), "a1 往復")
-	check_eq(BoardLayout.world_to_square(h8), Vector2i(7, 7), "h8 往復")
-	check_eq(BoardLayout.world_to_square(e4), Vector2i(4, 3), "e4 往復")
+	var nine_corners := {
+		Vector2i(0, 0): Vector3(-4.0, 0.0, 4.0),
+		Vector2i(8, 0): Vector3(4.0, 0.0, 4.0),
+		Vector2i(0, 8): Vector3(-4.0, 0.0, -4.0),
+		Vector2i(8, 8): Vector3(4.0, 0.0, -4.0),
+		Vector2i(4, 4): Vector3.ZERO,
+	}
+	for pos in nine_corners:
+		var world := BoardLayout.square_to_world(pos, SHOGI_BOARD_SIZE)
+		check_eq(world, nine_corners[pos], "9x9 実測座標 %s" % pos)
+		check_eq(BoardLayout.world_to_square(world, SHOGI_BOARD_SIZE), pos, "9x9 往復 %s" % pos)
+
+	# X と Z が width/height を独立に使うことを非正方形の校正点で固定する。
+	var rectangular_size := Vector2i(8, 9)
+	check_eq(
+		BoardLayout.square_to_world(Vector2i(0, 0), rectangular_size),
+		Vector3(-3.5, 0.0, 4.0),
+		"8x9 左上は width=-3.5 / height=+4",
+	)
+	check_eq(
+		BoardLayout.square_to_world(Vector2i(7, 8), rectangular_size),
+		Vector3(3.5, 0.0, -4.0),
+		"8x9 右下は width=+3.5 / height=-4",
+	)
+
+
+func test_layout_board_bounds_use_required_size() -> void:
+	for board_size in [CHESS_BOARD_SIZE, SHOGI_BOARD_SIZE]:
+		check(BoardLayout.is_in_board(Vector2i.ZERO, board_size), "%s 原点は盤内" % board_size)
+		check(
+			BoardLayout.is_in_board(board_size - Vector2i.ONE, board_size),
+			"%s 最終マスは盤内" % board_size,
+		)
+		check(not BoardLayout.is_in_board(Vector2i(-1, 0), board_size), "%s 負 file は盤外" % board_size)
+		check(
+			not BoardLayout.is_in_board(Vector2i(board_size.x, 0), board_size),
+			"%s width 境界は盤外" % board_size,
+		)
+		check(
+			not BoardLayout.is_in_board(Vector2i(0, board_size.y), board_size),
+			"%s height 境界は盤外" % board_size,
+		)
 
 
 func test_light_dark_alternates_with_a1_dark() -> void:
@@ -56,7 +99,7 @@ func test_board_view_matches_engine_starting_position() -> void:
 				check_eq(node.piece_side, piece.side, "%s の side" % str(pos))
 				check_eq(node.piece_kind, piece.kind, "%s の kind" % str(pos))
 				check_eq(node.board_pos, pos, "%s の board_pos" % str(pos))
-				var expected_pos := BoardLayout.square_to_world(pos)
+				var expected_pos := BoardLayout.square_to_world(pos, CHESS_BOARD_SIZE)
 				check(
 					node.position.is_equal_approx(expected_pos),
 					"%s のワールド位置 (got %s expected %s)" % [str(pos), node.position, expected_pos]
@@ -77,6 +120,27 @@ func test_board_view_does_not_invent_pieces_beyond_board() -> void:
 	var view := BoardView.new()
 	view.build_from(empty)
 	check_eq(view.piece_count(), 0, "空盤には駒が無い")
+	view.free()
+
+
+func test_board_view_centers_nine_by_nine_board() -> void:
+	var board := Board.empty(9, 9)
+	board.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.ROOK))
+	board.set_piece(Vector2i(4, 4), Piece.new(Piece.Side.BLACK, Piece.Kind.KING))
+	board.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.WHITE, Piece.Kind.BISHOP))
+	var view := BoardView.new()
+	view.build_from(board)
+
+	check_eq(view.get_node("Tiles").get_child_count(), 81, "9x9 は 81 タイル")
+	for pos in [Vector2i(0, 0), Vector2i(4, 4), Vector2i(8, 8)]:
+		var node := view.piece_node_at(pos)
+		check(node != null, "9x9 の %s に駒ノード" % pos)
+		if node != null:
+			check_eq(
+				node.position,
+				BoardLayout.square_to_world(pos, SHOGI_BOARD_SIZE),
+				"9x9 の %s を実盤寸法で配置" % pos,
+			)
 	view.free()
 
 

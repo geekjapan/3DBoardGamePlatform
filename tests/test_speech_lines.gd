@@ -279,6 +279,27 @@ func test_director_spawns_bubbles_for_plan() -> void:
 	view.free()
 
 
+func test_director_fallback_uses_actual_board_size() -> void:
+	var board := Board.empty(9, 9)
+	var session := GameSession.from_board(board)
+	var view := BoardView.new()
+	view.build_from(board)
+	var director := SpeechDirector.new()
+	director.setup(session, view, SpeechResolver.new(_full_test_catalog()))
+
+	var utterance := SpeechUtterance.new()
+	utterance.text = "盤端"
+	utterance.square = Vector2i(8, 8)
+	utterance.is_victim = true
+	var bubble := director._spawn_bubble(utterance)
+	check(bubble != null, "9x9 盤端にフォールバック吹き出し")
+	if bubble != null:
+		check_eq(bubble.position, Vector3(4.0, 0.0, -4.0), "発話位置は 9x9 実盤寸法")
+
+	director.free()
+	view.free()
+
+
 func test_is_important_flags() -> void:
 	var resolver := SpeechResolver.new(_full_test_catalog())
 	var quiet := _event_quiet_move(Piece.Kind.PAWN)
