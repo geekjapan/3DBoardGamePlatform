@@ -11,6 +11,7 @@ signal closed
 
 var _catalog: SpeechCatalog
 var _settings: TeamSettings
+var _game_id: String = SpeechCatalog.GAME_CHESS
 var _root: Control
 var _panel: PanelContainer
 var _white_option: OptionButton
@@ -121,9 +122,14 @@ func _build_side_block(title_text: String, is_white: bool) -> Control:
 	return box
 
 
-func open_with(catalog: SpeechCatalog, settings: TeamSettings) -> void:
+func open_with(
+	catalog: SpeechCatalog,
+	settings: TeamSettings,
+	game_id: String = SpeechCatalog.GAME_CHESS,
+) -> void:
 	_catalog = catalog
 	_settings = settings
+	_game_id = game_id if game_id == SpeechCatalog.GAME_SHOGI else SpeechCatalog.GAME_CHESS
 	refresh_options()
 	visible = true
 
@@ -194,10 +200,7 @@ func _lineup_text(team_id: String) -> String:
 	if t == null:
 		return "割当なし"
 	var parts: PackedStringArray = []
-	for kind in [
-		Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
-		Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
-	]:
+	for kind in SpeechCatalog.kinds_for_game(_game_id):
 		var cid := t.character_id_for_kind(kind)
 		var cname := cid
 		var ch := _catalog.character(cid)
