@@ -5,9 +5,16 @@ extends CanvasLayer
 ## エンジンが無いときは AI を選べず、その旨を表示する。
 ## API キー入力欄は置かない(環境変数専用)。
 
+## 画面の論理高さ 720(project.godot の viewport_height)に収まる高さの半分。
+## これを超えると下のボタンが画面外へ出る。
+const PANEL_HALF_HEIGHT := 320.0
+
 signal closed
 signal settings_applied(settings: AiSettings)
 signal speech_settings_applied(settings: SpeechSettings)
+## 現在の視点を初期位置として保存したい / 既定構図へ戻したい。
+signal view_save_requested
+signal view_reset_requested
 
 var _settings: AiSettings
 var _speech: SpeechSettings
@@ -21,6 +28,7 @@ var _protocol_label: Label
 var _speech_mode_option: OptionButton
 var _move_prob_slider: HSlider
 var _move_prob_value: Label
+var _view_status: Label
 
 
 func _init() -> void:
@@ -40,12 +48,13 @@ func _init() -> void:
 	_root.add_child(dim)
 
 	_panel = PanelContainer.new()
-	_panel.custom_minimum_size = Vector2(460, 460)
+	# 高さは画面内に固定する。項目が増えても下のボタンが画面外へ出ないよう、
+	# 中身は ScrollContainer に入れてパネル自体は伸ばさない。
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.offset_left = -230
-	_panel.offset_top = -230
-	_panel.offset_right = 230
-	_panel.offset_bottom = 230
+	_panel.offset_left = -250
+	_panel.offset_top = -PANEL_HALF_HEIGHT
+	_panel.offset_right = 250
+	_panel.offset_bottom = PANEL_HALF_HEIGHT
 	_root.add_child(_panel)
 
 	var margin := MarginContainer.new()
@@ -55,9 +64,21 @@ func _init() -> void:
 	margin.add_theme_constant_override("margin_bottom", 16)
 	_panel.add_child(margin)
 
+	# 外側は「スクロールする本体」と「常に見えるボタン列」の 2 段。
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 10)
+	margin.add_child(outer)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(scroll)
+
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 10)
-	margin.add_child(vbox)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vbox)
 
 	var title := Label.new()
 	title.text = "設定"
@@ -144,10 +165,44 @@ func _init() -> void:
 	key_hint.add_theme_color_override("font_color", Color(0.65, 0.7, 0.75))
 	vbox.add_child(key_hint)
 
+	var cam_sep := HSeparator.new()
+	vbox.add_child(cam_sep)
+
+	var cam_title := Label.new()
+	cam_title.text = "視点"
+	cam_title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(cam_title)
+
+	var cam_hint := Label.new()
+	cam_hint.text = "盤を見やすい向きにしてから保存すると、次回起動時もその視点で始まります。"
+	cam_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cam_hint.add_theme_font_size_override("font_size", 12)
+	cam_hint.add_theme_color_override("font_color", Color(0.65, 0.7, 0.75))
+	vbox.add_child(cam_hint)
+
+	var cam_row := HBoxContainer.new()
+	cam_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(cam_row)
+
+	var save_view_btn := Button.new()
+	save_view_btn.text = "現在の視点を初期位置にする"
+	save_view_btn.pressed.connect(_on_save_view)
+	cam_row.add_child(save_view_btn)
+
+	var reset_view_btn := Button.new()
+	reset_view_btn.text = "初期位置に戻す"
+	reset_view_btn.pressed.connect(_on_reset_view)
+	cam_row.add_child(reset_view_btn)
+
+	_view_status = Label.new()
+	_view_status.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(_view_status)
+
+	# ボタン列はスクロールの外。項目が増えても「保存」が必ず見える。
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 12)
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
-	vbox.add_child(btn_row)
+	outer.add_child(btn_row)
 
 	var probe_btn := Button.new()
 	probe_btn.text = "接続確認"
@@ -178,6 +233,21 @@ func open_with(settings: AiSettings, speech: SpeechSettings = null) -> void:
 	_refresh_enabled_state()
 	_protocol_label.text = "プロトコル: %s (将棋 USI は後から追加予定)" % settings.protocol
 	visible = true
+
+
+func _on_save_view() -> void:
+	view_save_requested.emit()
+	set_view_status("現在の視点を初期位置として保存しました。")
+
+
+func _on_reset_view() -> void:
+	view_reset_requested.emit()
+	set_view_status("初期位置に戻しました。")
+
+
+func set_view_status(text: String) -> void:
+	if _view_status != null:
+		_view_status.text = text
 
 
 func _select_strength(value: int) -> void:

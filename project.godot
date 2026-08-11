@@ -8,3 +8,18 @@ config_version=5
 config/name="3DBoardGamePlatform"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+; hiDPI では実ピクセルが論理サイズの 2 倍になり、px 指定の UI が半分の大きさに見える。
+; canvas_items で 2D をビューポート基準にスケールさせて実寸を合わせる。
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[audio]
+
+; TTS を使う宣言(発話の音声モード)。macOS では無くても動いたが、
+; 他プラットフォームでは有効化が必要なため明示しておく。
+general/text_to_speech=true

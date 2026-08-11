@@ -17,6 +17,10 @@ const DEFAULT_PATH_CANDIDATES := [
 var ai_enabled: bool = false
 ## EngineAdapter.Strength
 var strength: int = EngineAdapter.Strength.MEDIUM
+## テスト差し替え用。空なら CONFIG_PATH を使う。
+## テストが実ファイルへ書くと、利用者の保存済み設定を壊す。
+var config_path: String = ""
+
 var engine_path: String = ""
 ## "uci" / "usi"
 var protocol: String = "uci"
@@ -28,21 +32,32 @@ var engine_available: bool = false
 var engine_message: String = ""
 
 
-static func load_or_default() -> AiSettings:
+static func load_or_default(path: String = "") -> AiSettings:
 	var s := AiSettings.new()
+	if path != "":
+		s.config_path = path
 	s.load_from_disk()
 	return s
 
 
+func resolved_path() -> String:
+	if config_path != "":
+		return config_path
+	return CONFIG_PATH
+
+
 func load_from_disk() -> void:
 	var cfg := ConfigFile.new()
-	var err := cfg.load(CONFIG_PATH)
+	var err := cfg.load(resolved_path())
 	if err != OK:
 		engine_path = _guess_default_path()
 		return
 	ai_enabled = bool(cfg.get_value(SECTION, "enabled", false))
 	strength = int(cfg.get_value(SECTION, "strength", EngineAdapter.Strength.MEDIUM))
-	engine_path = str(cfg.get_value(SECTION, "engine_path", _guess_default_path()))
+	engine_path = str(cfg.get_value(SECTION, "engine_path", "")).strip_edges()
+	if engine_path == "":
+		# 空で保存された設定が自動検出に勝たないようにする。
+		engine_path = _guess_default_path()
 	protocol = str(cfg.get_value(SECTION, "protocol", "uci"))
 	human_side = int(cfg.get_value(SECTION, "human_side", Piece.Side.WHITE))
 	strength = clampi(strength, EngineAdapter.Strength.WEAK, EngineAdapter.Strength.STRONG)
@@ -51,13 +66,13 @@ func load_from_disk() -> void:
 func save_to_disk() -> void:
 	var cfg := ConfigFile.new()
 	# 他セクションを壊さないよう既存を読んでから書く。
-	cfg.load(CONFIG_PATH)
+	cfg.load(resolved_path())
 	cfg.set_value(SECTION, "enabled", ai_enabled)
 	cfg.set_value(SECTION, "strength", strength)
 	cfg.set_value(SECTION, "engine_path", engine_path)
 	cfg.set_value(SECTION, "protocol", protocol)
 	cfg.set_value(SECTION, "human_side", human_side)
-	cfg.save(CONFIG_PATH)
+	cfg.save(resolved_path())
 
 
 func strength_label() -> String:

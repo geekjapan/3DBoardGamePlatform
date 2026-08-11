@@ -97,14 +97,32 @@ func test_settings_persist_and_disable_without_engine() -> void:
 	check(not s.can_play_ai(), "can_play_ai は false")
 	check(s.engine_message != "", "メッセージ")
 
+	# 実ファイルの user://settings.cfg は利用者の設定なので絶対に触らない。
+	var path := "user://test_ai_settings_%d.cfg" % Time.get_ticks_usec()
+	s.config_path = path
 	s.engine_path = "/still/missing"
 	s.strength = EngineAdapter.Strength.WEAK
 	s.ai_enabled = false
 	s.save_to_disk()
-	var loaded := AiSettings.load_or_default()
+	var loaded := AiSettings.load_or_default(path)
 	check_eq(loaded.engine_path, "/still/missing", "パスが保持される")
 	check_eq(loaded.strength, EngineAdapter.Strength.WEAK, "強さが保持される")
 	check(not loaded.ai_enabled, "オフが保持される")
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func test_empty_saved_engine_path_falls_back_to_autodetect() -> void:
+	# 空で保存された値が自動検出に勝つと、エンジンが入っていても見つからないままになる。
+	var path := "user://test_ai_autodetect_%d.cfg" % Time.get_ticks_usec()
+	var s := AiSettings.new()
+	s.config_path = path
+	s.engine_path = ""
+	s.save_to_disk()
+	var loaded := AiSettings.load_or_default(path)
+	check(loaded.engine_path != "", "空保存なら自動検出にフォールバックする")
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 func test_strength_presets_map_to_different_skill_levels() -> void:
@@ -182,3 +200,14 @@ func _resolve_stockfish_path() -> String:
 		if p != "stockfish" and FileAccess.file_exists(p):
 			return p
 	return ""
+
+
+func test_settings_panel_fits_on_screen() -> void:
+	# 項目を足してパネルが画面より高くなり、下のボタンが押せなくなっていた。
+	# 中身はスクロールさせ、パネル自体は画面内に収める。
+	var viewport_height := float(ProjectSettings.get_setting("display/window/size/viewport_height"))
+	var panel_height := SettingsPanel.PANEL_HALF_HEIGHT * 2.0
+	check(
+		panel_height < viewport_height,
+		"設定パネル(%.0f)が画面の高さ(%.0f)に収まる" % [panel_height, viewport_height]
+	)

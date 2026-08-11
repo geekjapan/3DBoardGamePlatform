@@ -12,6 +12,9 @@ var hud: GameHud
 var orbit: OrbitCamera
 var ai_match: AiMatch
 
+## ダイアログ表示中は false にして、盤のクリックを止める。
+var input_enabled: bool = true
+
 var _press_pos: Vector2 = Vector2.ZERO
 var _pressing: bool = false
 var _dragged: bool = false
@@ -41,6 +44,11 @@ func setup(
 
 func _unhandled_input(event: InputEvent) -> void:
 	if session == null:
+		return
+	if not input_enabled:
+		# ダイアログ表示中。押しっぱなしの状態を残さない。
+		_pressing = false
+		_dragged = false
 		return
 	if ai_match != null and ai_match.blocks_human_input():
 		return

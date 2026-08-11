@@ -11,7 +11,9 @@ var spoken: PackedStringArray = PackedStringArray()
 var use_system_tts: bool = true
 ## 音声 ID。空なら既定音声。
 var voice_id: String = ""
-var volume: float = 1.0
+## DisplayServer.tts_speak の volume は 0〜100 の int。
+## float の 1.0 を渡すと 1 に切り捨てられ、鳴っているのに聞こえない音量になる。
+var volume: int = 100
 var pitch: float = 1.0
 var rate: float = 1.0
 
@@ -25,8 +27,9 @@ func speak(text: String) -> void:
 		return
 	if not DisplayServer.has_feature(DisplayServer.FEATURE_TEXT_TO_SPEECH):
 		return
-	# 連続発話で重ならないよう直前を止める。
-	DisplayServer.tts_stop()
+	# ここで tts_stop() を呼ばないこと。1 つの着手で複数人が喋る(取った側と取られた側)ため
+	# 同一フレームで speak が連続し、後続の stop が直前の発話ごと自分も潰して 0.2 秒で切れる。
+	# tts_speak の interrupt=false がキューしてくれるので、順番に鳴る。
 	var voice := voice_id
 	if voice == "":
 		var voices: Array = DisplayServer.tts_get_voices_for_language("ja")
