@@ -1,0 +1,12 @@
+{
+  "id": "calm_line",
+  "display_name": "冷静ライン",
+  "assignments": {
+    "pawn": "calm",
+    "knight": "calm",
+    "bishop": "calm",
+    "rook": "calm",
+    "queen": "tsundere",
+    "king": "tsundere"
+  }
+}

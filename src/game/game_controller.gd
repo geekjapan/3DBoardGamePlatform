@@ -4,29 +4,45 @@ extends Node
 ## GameSession と BoardView / GameHud / カメラ入力を結線する。
 ## 左クリック(ドラッグでない)でマスを指定。待ったは HUD ボタン。
 ## ドラッグ閾値は OrbitCamera.DRAG_THRESHOLD_PX と共有する。
+## AI 対戦時は AiMatch が思考・着手し、人手番以外の入力を止める。
 
 var session: GameSession
 var board_view: BoardView
 var hud: GameHud
 var orbit: OrbitCamera
+var ai_match: AiMatch
 
 var _press_pos: Vector2 = Vector2.ZERO
 var _pressing: bool = false
 var _dragged: bool = false
 
 
-func setup(p_session: GameSession, p_view: BoardView, p_hud: GameHud, p_orbit: OrbitCamera) -> void:
+func setup(
+	p_session: GameSession,
+	p_view: BoardView,
+	p_hud: GameHud,
+	p_orbit: OrbitCamera,
+	p_ai_match: AiMatch = null,
+) -> void:
 	session = p_session
 	board_view = p_view
 	hud = p_hud
 	orbit = p_orbit
+	ai_match = p_ai_match
 	if not hud.undo_pressed.is_connected(_on_undo):
 		hud.undo_pressed.connect(_on_undo)
+	if ai_match != null:
+		if not ai_match.board_updated.is_connected(_on_ai_board_updated):
+			ai_match.board_updated.connect(_on_ai_board_updated)
 	_refresh_view()
+	if ai_match != null:
+		ai_match.on_position_changed()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if session == null:
+		return
+	if ai_match != null and ai_match.blocks_human_input():
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -70,12 +86,22 @@ func _handle_click(screen_pos: Vector2) -> void:
 		return
 	session.click(sq)
 	_refresh_view()
+	if ai_match != null:
+		ai_match.on_position_changed()
 	# 左クリックを handled にしない: OrbitCamera が release を受け取る必要がある。
 
 
 func _on_undo() -> void:
+	if ai_match != null:
+		ai_match.cancel_search()
 	if session != null and session.undo():
 		_refresh_view()
+		if ai_match != null:
+			ai_match.on_position_changed()
+
+
+func _on_ai_board_updated() -> void:
+	_refresh_view()
 
 
 func _refresh_view() -> void:

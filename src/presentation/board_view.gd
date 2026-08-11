@@ -3,6 +3,8 @@ extends Node3D
 
 ## 3D 盤と駒の見た目。配置の唯一のソースは渡された Board(二重に持たない)。
 ## タイルはコード生成(シーンファイルは作らない)。
+## 着手のたびに駒ノードを全破棄せず、移動は同一インスタンスを再利用する。
+## 移動・駒取りは tween 演出。待機は PieceNode 側。操作中断でも論理盤に再同期する。
 
 const LIGHT_COLOR := Color(0.91, 0.82, 0.65)
 const DARK_COLOR := Color(0.48, 0.32, 0.20)
@@ -22,6 +24,10 @@ var _piece_nodes: Dictionary = {}
 ## Vector2i -> MeshInstance3D (ハイライト)
 var _highlight_nodes: Dictionary = {}
 var _board: Board
+## 取られ演出中で盤マップからは外れているノード。
+var _capturing_nodes: Array = []
+## 次の sync で演出するか。build_from は false、apply_board は true。
+var _animate_next_sync: bool = false
 
 
 func _init() -> void:
@@ -51,6 +57,14 @@ func piece_node_at(pos: Vector2i) -> PieceNode:
 	return _piece_nodes[pos] as PieceNode
 
 
+func all_piece_nodes() -> Array:
+	## テスト用。現在の駒ノード一覧(順序不定)。
+	var out: Array = []
+	for pos in _piece_nodes:
+		out.append(_piece_nodes[pos])
+	return out
+
+
 func highlight_count() -> int:
 	return _highlight_nodes.size()
 
@@ -59,36 +73,135 @@ func has_highlight_at(pos: Vector2i) -> bool:
 	return _highlight_nodes.has(pos)
 
 
+func is_animating() -> bool:
+	## 移動中または取られ演出中の駒があるか。
+	for pos in _piece_nodes:
+		var node: PieceNode = _piece_nodes[pos]
+		if node.is_animating():
+			return true
+	if not _capturing_nodes.is_empty():
+		return true
+	return false
+
+
+func finish_animations() -> void:
+	## 進行中の演出をすべて打ち切る。再操作・テストの確定同期用。
+	for pos in _piece_nodes:
+		var node: PieceNode = _piece_nodes[pos]
+		if node.is_animating():
+			node.finish_animations_now()
+	_force_finish_captures()
+
+
 func build_from(board: Board) -> void:
 	## 盤を与えてタイルと駒を構築する。以降の配置はこの board に従う。
+	_force_finish_captures()
 	_board = board
+	_animate_next_sync = false
 	_rebuild_tiles()
 	sync_pieces()
 	clear_highlights()
 
 
 func apply_board(board: Board) -> void:
-	## 対局中の盤更新。タイルは作り直さず駒だけ同期する。
+	## 対局中の盤更新。タイルは作り直さず駒だけ同期する。移動・取りを演出する。
+	## 演出中の再呼び出しでも中断して新しい盤へ安全に合わせる。
+	_interrupt_for_resync()
 	_board = board
+	_animate_next_sync = is_inside_tree()
 	sync_pieces()
 
 
+func apply_move_event(board: Board, _event: MoveEvent) -> void:
+	## MoveEvent を観測して演出する入口。現状は apply_board と同じ経路
+	## (同一性マッチで移動・取りを判定)。将来イベント固有の順序付け用に残す。
+	apply_board(board)
+
+
 func sync_pieces() -> void:
-	## 現在の Board 状態に合わせて駒ノードを作り直す。
+	## 現在の Board に合わせて駒ノードを同期する。
+	## 同じ side+kind のノードは可能な限り再利用し、移動した駒は作り直さない。
+	## 取られた駒は演出後に free し、成りはノードを保ったまま見た目を差し替える。
 	assert(_board != null, "build_from を先に呼ぶ")
-	_clear_pieces()
+
+	var animate := _animate_next_sync
+	_animate_next_sync = false
+
+	var desired: Dictionary = {}  # Vector2i -> Piece
 	for y in range(_board.height):
 		for x in range(_board.width):
 			var pos := Vector2i(x, y)
 			var piece := _board.piece_at(pos)
-			if piece == null:
-				continue
-			var node := PieceNode.new(piece.side, piece.kind, pos)
-			node.name = "Piece_%d_%d" % [x, y]
-			node.position = BoardLayout.square_to_world(pos, square_size)
-			node.set_model(PlaceholderVisual.create(piece.side, piece.kind))
-			_pieces_root.add_child(node)
-			_piece_nodes[pos] = node
+			if piece != null:
+				desired[pos] = piece
+
+	var free_nodes: Array = []
+	for pos in _piece_nodes:
+		free_nodes.append(_piece_nodes[pos])
+
+	var next_map: Dictionary = {}  # Vector2i -> PieceNode
+	var unmatched: Array = []  # Vector2i
+
+	# Pass 1: 同じマス・同じ side・同じ kind はそのまま残す。
+	for pos in desired:
+		var piece: Piece = desired[pos]
+		var kept: PieceNode = null
+		for i in free_nodes.size():
+			var node: PieceNode = free_nodes[i]
+			if node.board_pos == pos and node.piece_side == piece.side and node.piece_kind == piece.kind:
+				kept = node
+				free_nodes.remove_at(i)
+				break
+		if kept != null:
+			_place_node(kept, pos, piece, false, false)
+			next_map[pos] = kept
+		else:
+			unmatched.append(pos)
+
+	# Pass 2: 移動 — 同じ side+kind の空きノードを割り当てる(空いた元マスを優先)。
+	for pos in unmatched.duplicate():
+		var piece: Piece = desired[pos]
+		var idx := _find_free_node(free_nodes, piece.side, piece.kind, true)
+		if idx < 0:
+			continue
+		var node: PieceNode = free_nodes[idx]
+		free_nodes.remove_at(idx)
+		_place_node(node, pos, piece, false, animate)
+		next_map[pos] = node
+		unmatched.erase(pos)
+
+	# Pass 3: 成り — 同 side のポーンノードを非ポーンへ昇格させる。
+	for pos in unmatched.duplicate():
+		var piece: Piece = desired[pos]
+		if piece.kind == Piece.Kind.PAWN:
+			continue
+		var idx := _find_free_node(free_nodes, piece.side, Piece.Kind.PAWN, true)
+		if idx < 0:
+			continue
+		var node: PieceNode = free_nodes[idx]
+		free_nodes.remove_at(idx)
+		_place_node(node, pos, piece, true, animate)
+		next_map[pos] = node
+		unmatched.erase(pos)
+
+	# Pass 4: まだ足りない分は新規作成(初期配置・テスト構築)。
+	for pos in unmatched:
+		var piece: Piece = desired[pos]
+		var node := PieceNode.new(piece.side, piece.kind, pos)
+		node.set_model(PlaceholderVisual.create(piece.side, piece.kind))
+		_pieces_root.add_child(node)
+		_place_node(node, pos, piece, false, false)
+		next_map[pos] = node
+
+	# Pass 5: 余ったノードは取られた駒(または盤から消えた駒)。
+	for node in free_nodes:
+		var n: PieceNode = node
+		if animate and is_inside_tree():
+			_start_capture(n)
+		else:
+			_free_piece_node(n)
+
+	_piece_nodes = next_map
 
 
 func set_highlights(selected: Vector2i, targets: Array, check_square: Vector2i = BoardLayout.INVALID_SQUARE) -> void:
@@ -114,6 +227,87 @@ func clear_highlights() -> void:
 		var child: Node = _highlights_root.get_child(0)
 		_highlights_root.remove_child(child)
 		child.free()
+
+
+func _interrupt_for_resync() -> void:
+	## 演出中の再同期前に、移動を着地させ取り演出中ノードを片付ける。
+	for pos in _piece_nodes:
+		var node: PieceNode = _piece_nodes[pos]
+		if node.anim_state() == PieceNode.AnimState.MOVING:
+			node.finish_animations_now()
+	_force_finish_captures()
+
+
+func _force_finish_captures() -> void:
+	for node in _capturing_nodes.duplicate():
+		var n: PieceNode = node
+		if is_instance_valid(n):
+			n.finish_animations_now()
+			_free_piece_node(n)
+	_capturing_nodes.clear()
+
+
+func _start_capture(node: PieceNode) -> void:
+	if node.get_parent() != _pieces_root and node.get_parent() != null:
+		node.get_parent().remove_child(node)
+		_pieces_root.add_child(node)
+	if not _capturing_nodes.has(node):
+		_capturing_nodes.append(node)
+	if not node.capture_finished.is_connected(_on_capture_finished.bind(node)):
+		node.capture_finished.connect(_on_capture_finished.bind(node), CONNECT_ONE_SHOT)
+	node.play_capture()
+
+
+func _on_capture_finished(node: PieceNode) -> void:
+	_capturing_nodes.erase(node)
+	if is_instance_valid(node):
+		_free_piece_node(node)
+
+
+func _free_piece_node(node: PieceNode) -> void:
+	if not is_instance_valid(node):
+		return
+	if node.get_parent() != null:
+		node.get_parent().remove_child(node)
+	node.free()
+
+
+func _find_free_node(free_nodes: Array, side: int, kind: int, prefer_vacated: bool) -> int:
+	## free_nodes から side+kind 一致を探す。prefer_vacated なら元マスが新盤で空のものを優先。
+	var fallback := -1
+	for i in free_nodes.size():
+		var node: PieceNode = free_nodes[i]
+		if node.piece_side != side or node.piece_kind != kind:
+			continue
+		if not prefer_vacated:
+			return i
+		# 元マスに今も別駒があるなら「動かなかった別人」の可能性が高いので後回し。
+		if not _piece_nodes.has(node.board_pos) or _board.piece_at(node.board_pos) == null:
+			return i
+		if fallback < 0:
+			fallback = i
+	return fallback
+
+
+func _place_node(
+	node: PieceNode,
+	pos: Vector2i,
+	piece: Piece,
+	appearance_changed: bool,
+	animate: bool,
+) -> void:
+	node.board_pos = pos
+	node.piece_side = piece.side
+	var kind_changed := node.piece_kind != piece.kind
+	node.piece_kind = piece.kind
+	node.name = "Piece_%d_%d" % [pos.x, pos.y]
+	var world := BoardLayout.square_to_world(pos, square_size)
+	if appearance_changed or kind_changed:
+		node.set_model(PlaceholderVisual.create(piece.side, piece.kind))
+	if animate:
+		node.animate_move_to(world)
+	else:
+		node.snap_to(world)
 
 
 func _add_highlight(pos: Vector2i, color: Color) -> void:
@@ -157,11 +351,3 @@ func _rebuild_tiles() -> void:
 			var world := BoardLayout.square_to_world(pos, square_size)
 			tile.position = Vector3(world.x, -TILE_HEIGHT * 0.5, world.z)
 			_tiles_root.add_child(tile)
-
-
-func _clear_pieces() -> void:
-	_piece_nodes.clear()
-	while _pieces_root.get_child_count() > 0:
-		var child: Node = _pieces_root.get_child(0)
-		_pieces_root.remove_child(child)
-		child.free()

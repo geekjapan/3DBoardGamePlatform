@@ -3,6 +3,7 @@ extends RefCounted
 
 ## 2 人対局の操作状態。Board(ルール)の上に選択・着手・待った・終局を載せる。
 ## 見た目や入力デバイスは持たない(presentation がこの API を叩く)。
+## 着手のたびに MoveEvent を発行し、選択経由 / 直接適用のどちらでも同じ内容を観測できる。
 
 const NO_SQUARE := Vector2i(-1, -1)
 
@@ -16,6 +17,8 @@ var _history: Array = []
 var _selected: Vector2i = NO_SQUARE
 ## selected 中の合法手キャッシュ。select / 盤更新で張り直す。
 var _legal_from_selected: Array = []
+## 直近の成功した着手。失敗や未着手では null。
+var _last_move_event: MoveEvent = null
 
 
 static func start() -> GameSession:
@@ -81,6 +84,11 @@ func result_text() -> String:
 	return ""
 
 
+func last_move_event() -> MoveEvent:
+	## 直近の成功した着手。選択失敗や非合法手では更新されない。
+	return _last_move_event
+
+
 func select(pos: Vector2i) -> bool:
 	if is_over():
 		return false
@@ -103,10 +111,18 @@ func try_move_to(pos: Vector2i) -> bool:
 	var move := _find_legal_move(pos)
 	if move == null:
 		return false
-	_history.append(_board)
-	_board = _board.apply(move)
-	deselect()
-	return true
+	return _commit_move(move) != null
+
+
+func apply_move(move: Move) -> MoveEvent:
+	## 選択を経由せず合法手を直接適用する。非合法・終局後は null を返し盤を変えない。
+	## AI 対戦など、クリック以外の入口から同じ MoveEvent を観測するための API。
+	if is_over() or move == null:
+		return null
+	var legal := _find_matching_legal(move)
+	if legal == null:
+		return null
+	return _commit_move(legal)
 
 
 func click(pos: Vector2i) -> void:
@@ -142,6 +158,42 @@ func undo() -> bool:
 	return true
 
 
+func _commit_move(move: Move) -> MoveEvent:
+	var event := _build_move_event(move)
+	_history.append(_board)
+	_board = _board.apply(move)
+	event.is_check = _board.in_check()
+	event.is_checkmate = _board.is_checkmate()
+	event.is_stalemate = _board.is_stalemate()
+	event.is_over = event.is_checkmate or event.is_stalemate
+	event.result_text = result_text()
+	_last_move_event = event
+	deselect()
+	return event
+
+
+func _build_move_event(move: Move) -> MoveEvent:
+	## 着手前の盤から、移動・取り・成りの事実を拾う。
+	var event := MoveEvent.new()
+	event.move = move
+	var mover := _board.piece_at(move.from)
+	assert(mover != null, "合法手なのに from に駒が無い")
+	event.mover_side = mover.side
+	event.mover_kind = mover.kind
+	if move.is_en_passant:
+		var cap_pos := Vector2i(move.to.x, move.from.y)
+		var cap := _board.piece_at(cap_pos)
+		if cap != null:
+			event.captured = cap.duplicate_piece()
+			event.captured_square = cap_pos
+	else:
+		var cap2 := _board.piece_at(move.to)
+		if cap2 != null:
+			event.captured = cap2.duplicate_piece()
+			event.captured_square = move.to
+	return event
+
+
 func _cache_legal_from_selected() -> void:
 	_legal_from_selected.clear()
 	if not is_selected():
@@ -156,5 +208,14 @@ func _find_legal_move(to: Vector2i) -> Move:
 	for m in _legal_from_selected:
 		var move := m as Move
 		if move.to == to:
+			return move
+	return null
+
+
+func _find_matching_legal(want: Move) -> Move:
+	## from / to / promotion で合法手を探す(UCI 相当)。フラグの有無に依存しない。
+	for m in _board.legal_moves():
+		var move := m as Move
+		if move.from == want.from and move.to == want.to and move.promotion == want.promotion:
 			return move
 	return null
