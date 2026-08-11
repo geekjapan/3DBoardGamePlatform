@@ -111,7 +111,8 @@ func _build_utterance(
 	event_key: String,
 	is_victim: bool,
 ) -> SpeechUtterance:
-	var character := catalog.character_for_kind(kind)
+	# 陣営ごとのチーム割当からキャラクターを解決する(同一チームも可)。
+	var character := catalog.character_for_kind(kind, side)
 	if character == null:
 		return null
 	var pool := character.lines_for(event_key)
