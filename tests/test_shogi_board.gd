@@ -249,6 +249,114 @@ func test_capture_demotes_into_hand_and_apply_is_deeply_immutable() -> void:
 		check_eq(captured.hands[Piece.Side.WHITE][base_kind], 1, "成駒%dは元駒%dで持ち駒" % [promoted_kind, base_kind])
 
 
+func test_move_drop_factory_and_identity_include_drop_kind() -> void:
+	var to := Vector2i(4, 4)
+	var pawn := Move.drop(Piece.Kind.SHOGI_PAWN, to)
+	var silver := Move.drop(Piece.Kind.SHOGI_SILVER, to)
+	check_eq(pawn.from, Move.NO_SQUARE, "打つ手from")
+	check_eq(pawn.to, to, "打つ手to")
+	check(pawn.is_drop, "打つ手flag")
+	check_eq(pawn.drop_kind, Piece.Kind.SHOGI_PAWN, "打つ駒Kind")
+	check_eq(pawn.promotion, -1, "打つ手は成らない")
+	check(not pawn.is_castling and not pawn.is_en_passant, "チェス特殊手ではない")
+	check(not pawn.equals(silver), "同じtoでも異なるdrop_kindは別Move")
+	check(pawn.equals(Move.drop(Piece.Kind.SHOGI_PAWN, to)), "同じ打つ手は一致")
+	check_eq(Move.new(Vector2i(1, 1), to).drop_kind, -1, "通常手のdrop_kind既定値")
+
+
+func test_drop_applies_immutably_and_decrements_exact_hand_kind() -> void:
+	var board := _valid_empty_board()
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_SILVER] = 2
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_GOLD] = 1
+	var move := Move.drop(Piece.Kind.SHOGI_SILVER, Vector2i(4, 4))
+	check(_has_drop(board, move.drop_kind, move.to), "銀打ちが合法手にある")
+	var next := board.apply(move)
+	check_eq(next.piece_at(move.to).side, Piece.Side.WHITE, "自軍色で出現")
+	check_eq(next.piece_at(move.to).kind, Piece.Kind.SHOGI_SILVER, "選んだ銀が出現")
+	check_eq(next.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_SILVER], 1, "銀だけ1枚減る")
+	check_eq(next.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_GOLD], 1, "金は不変")
+	check_eq(next.side_to_move, Piece.Side.BLACK, "手番反転")
+	check(board.piece_at(move.to) == null, "元盤は空のまま")
+	check_eq(board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_SILVER], 2, "元の持ち駒不変")
+	next.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_GOLD] = 99
+	check_eq(board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_GOLD], 1, "hands深い不変性")
+
+
+func test_pawn_drop_rejects_nifu_but_promoted_pawn_does_not_count() -> void:
+	var board := _valid_empty_board()
+	board.set_piece(Vector2i(4, 2), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_PAWN))
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN] = 1
+	check(not _has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(4, 4)), "同じ筋の二歩を除外")
+	check(_has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(3, 4)), "別筋には歩を打てる")
+
+	var promoted := _valid_empty_board()
+	promoted.set_piece(Vector2i(4, 2), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_PROMOTED_PAWN))
+	promoted.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN] = 1
+	check(_has_drop(promoted, Piece.Kind.SHOGI_PAWN, Vector2i(4, 4)), "と金は二歩に数えない")
+
+
+func test_pawn_lance_and_knight_drop_reject_dead_ranks_for_both_sides() -> void:
+	for side in [Piece.Side.WHITE, Piece.Side.BLACK]:
+		var board := _valid_empty_board()
+		board.side_to_move = side
+		for kind in [Piece.Kind.SHOGI_PAWN, Piece.Kind.SHOGI_LANCE, Piece.Kind.SHOGI_KNIGHT]:
+			board.hands[side][kind] = 1
+		var last := 8 if side == Piece.Side.WHITE else 0
+		var second := 7 if side == Piece.Side.WHITE else 1
+		check(not _has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(4, last)), "歩の最奥 side=%d" % side)
+		check(not _has_drop(board, Piece.Kind.SHOGI_LANCE, Vector2i(4, last)), "香の最奥 side=%d" % side)
+		check(not _has_drop(board, Piece.Kind.SHOGI_KNIGHT, Vector2i(4, last)), "桂の最奥 side=%d" % side)
+		check(not _has_drop(board, Piece.Kind.SHOGI_KNIGHT, Vector2i(4, second)), "桂の最後2段 side=%d" % side)
+		var safe_rank := 6 if side == Piece.Side.WHITE else 2
+		check(_has_drop(board, Piece.Kind.SHOGI_KNIGHT, Vector2i(4, safe_rank)), "桂の安全段 side=%d" % side)
+
+
+func test_drop_that_leaves_own_king_in_check_is_illegal() -> void:
+	var board := ShogiBoard.empty()
+	board.set_piece(Vector2i(4, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(0, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(4, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_ROOK))
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_GOLD] = 1
+	check(not _has_drop(board, Piece.Kind.SHOGI_GOLD, Vector2i(0, 4)), "王手を放置する打ちは除外")
+	check(_has_drop(board, Piece.Kind.SHOGI_GOLD, Vector2i(4, 4)), "王手を遮る打ちは合法")
+
+
+func test_pawn_drop_mate_is_illegal() -> void:
+	var board := _pawn_drop_cage(true)
+	check(not _has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(4, 7)), "打ち歩詰めを除外")
+
+
+func test_pawn_drop_check_with_escape_square_is_legal() -> void:
+	var board := _pawn_drop_cage(false)
+	check(_has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(4, 7)), "逃げ道があれば歩打ち可")
+
+
+func test_pawn_drop_check_capturable_by_king_is_legal() -> void:
+	var board := _valid_empty_board()
+	board.set_piece(Vector2i(8, 8), null)
+	board.set_piece(Vector2i(4, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN] = 1
+	check(_has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(4, 7)), "玉で取れる歩打ちは合法")
+
+
+func test_pawn_drop_check_capturable_by_other_piece_is_legal() -> void:
+	var board := _pawn_drop_cage(true)
+	board.set_piece(Vector2i(3, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_GOLD))
+	check(_has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(4, 7)), "別駒で取れる歩打ちは合法")
+
+
+func test_nonchecking_pawn_drop_is_not_subject_to_mate_probe() -> void:
+	var board := _pawn_drop_cage(true)
+	check(_has_drop(board, Piece.Kind.SHOGI_PAWN, Vector2i(0, 4)), "非王手の歩打ちは合法")
+
+
+func test_non_pawn_mating_drop_is_legal() -> void:
+	var board := _pawn_drop_cage(true)
+	board.hands[Piece.Side.WHITE].erase(Piece.Kind.SHOGI_PAWN)
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_GOLD] = 1
+	check(_has_drop(board, Piece.Kind.SHOGI_GOLD, Vector2i(4, 7)), "歩以外の詰み打ちは合法")
+
+
 func test_checkmate_and_shogi_never_stalemates() -> void:
 	var mate := ShogiBoard.empty()
 	mate.side_to_move = Piece.Side.BLACK
@@ -308,6 +416,32 @@ func _has_promotion(moves: Array, promotion: int) -> bool:
 		if (candidate as Move).promotion == promotion:
 			return true
 	return false
+
+
+func _has_drop(board: ShogiBoard, kind: int, to: Vector2i) -> bool:
+	for candidate in board.legal_moves():
+		var move := candidate as Move
+		if move.is_drop and move.drop_kind == kind and move.to == to:
+			return true
+	return false
+
+
+func _valid_empty_board() -> ShogiBoard:
+	var board := ShogiBoard.empty()
+	board.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	return board
+
+
+func _pawn_drop_cage(cover_left_escape: bool) -> ShogiBoard:
+	var board := ShogiBoard.empty()
+	board.set_piece(Vector2i(4, 6), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(4, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	if cover_left_escape:
+		board.set_piece(Vector2i(3, 6), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_LANCE))
+	board.set_piece(Vector2i(5, 6), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_LANCE))
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN] = 1
+	return board
 
 
 func _attack_origin(kind: int, side: int) -> Vector2i:

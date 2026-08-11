@@ -13,6 +13,7 @@ const MOVER_PRIORITY: PackedStringArray = [
 	"check",
 	"captured",
 	"promoted",
+	"dropped",
 	"moved",
 ]
 
@@ -69,6 +70,7 @@ func is_important(event: MoveEvent) -> bool:
 		event.was_capture()
 		or event.is_check
 		or event.was_promotion()
+		or event.was_drop()
 		or event.is_over
 	)
 
@@ -96,6 +98,8 @@ func _mover_event_key(event: MoveEvent) -> String:
 		candidates.append("captured")
 	if event.was_promotion():
 		candidates.append("promoted")
+	if event.was_drop():
+		candidates.append("dropped")
 	if candidates.is_empty():
 		return "moved"
 	for key in MOVER_PRIORITY:
@@ -116,6 +120,9 @@ func _build_utterance(
 	if character == null:
 		return null
 	var pool := character.lines_for(event_key)
+	if pool.is_empty() and event_key == "dropped":
+		# 既存Character定義との互換を保ちつつ、イベント種別は dropped のまま扱う。
+		pool = character.lines_for("moved")
 	if pool.is_empty():
 		# イベントに対応するセリフが無い場合は黙る(クラッシュしない)。
 		return null

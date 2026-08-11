@@ -78,6 +78,100 @@ func test_zero_candidate_try_move_keeps_board_history_and_last_event() -> void:
 	check_eq(session.selected_square(), Vector2i(4, 6), "0候補でも選択維持")
 
 
+func test_select_drop_caches_complete_canonical_move_and_distinguishes_kind() -> void:
+	var board := _drop_board()
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN] = 1
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_SILVER] = 1
+	var session := GameSession.from_board(board)
+	var target := Vector2i(4, 4)
+	check(session.select_drop(Piece.Kind.SHOGI_PAWN), "歩の持ち駒を選択")
+	check(session.is_selected(), "持ち駒選択中もis_selected")
+	check_eq(session.selected_square(), Move.NO_SQUARE, "盤上選択は無し")
+	check_eq(session.selected_drop_kind(), Piece.Kind.SHOGI_PAWN, "歩選択")
+	var pawn_candidates := session.legal_moves_to(target)
+	check_eq(pawn_candidates.size(), 1, "歩の完全Move 1件")
+	check((pawn_candidates[0] as Move).is_drop, "canonical drop flag")
+	check_eq((pawn_candidates[0] as Move).drop_kind, Piece.Kind.SHOGI_PAWN, "canonical pawn kind")
+
+	check(session.select_drop(Piece.Kind.SHOGI_SILVER), "銀へ排他切替")
+	var silver_candidates := session.legal_moves_to(target)
+	check_eq(silver_candidates.size(), 1, "銀の完全Move 1件")
+	check_eq((silver_candidates[0] as Move).drop_kind, Piece.Kind.SHOGI_SILVER, "同じtoでも銀")
+	check(session.try_move_to(target), "cache中のcanonical銀打ちを適用")
+	check_eq(session.board().piece_at(target).kind, Piece.Kind.SHOGI_SILVER, "銀が盤へ出る")
+	check(not session.is_selected(), "成功着手で選択解除")
+
+
+func test_select_drop_rejects_missing_off_turn_and_invalid_kinds() -> void:
+	var board := _drop_board()
+	board.hands[Piece.Side.BLACK][Piece.Kind.SHOGI_PAWN] = 1
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_KING] = 1
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PROMOTED_PAWN] = 1
+	var session := GameSession.from_board(board)
+	check(not session.select_drop(Piece.Kind.SHOGI_PAWN), "手番外側だけの歩は選べない")
+	check(not session.select_drop(Piece.Kind.SHOGI_KING), "玉は打てない")
+	check(not session.select_drop(Piece.Kind.SHOGI_PROMOTED_PAWN), "成駒は打てない")
+	check(not session.select_drop(-1), "-1は打てない")
+	check(not session.select_drop(999), "未知Kindは打てない")
+	check(not session.is_selected(), "拒否後は未選択")
+
+	var target := Vector2i(4, 4)
+	check(session.apply_move(Move.drop(Piece.Kind.SHOGI_PAWN, target)) == null, "持ち駒不足を再検証")
+	check(session.apply_move(Move.drop(Piece.Kind.SHOGI_KING, target)) == null, "不正Kindを再検証")
+	var fake_shape := Move.new(Move.NO_SQUARE, target, -1, false, false, false, Piece.Kind.SHOGI_PAWN)
+	check(session.apply_move(fake_shape) == null, "is_drop無しの偽打ちを拒否")
+	var fake_promotion := Move.new(
+		Move.NO_SQUARE,
+		target,
+		Piece.Kind.SHOGI_PROMOTED_PAWN,
+		false,
+		false,
+		true,
+		Piece.Kind.SHOGI_PAWN,
+	)
+	check(session.apply_move(fake_promotion) == null, "promotion付き打ちを拒否")
+
+
+func test_board_and_hand_selection_are_exclusive_and_clear_on_direct_move() -> void:
+	var board := _drop_board()
+	board.set_piece(Vector2i(2, 2), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_PAWN))
+	board.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_SILVER] = 1
+	var session := GameSession.from_board(board)
+	check(session.select(Vector2i(2, 2)), "盤上歩を選択")
+	check_eq(session.selected_square(), Vector2i(2, 2), "盤上選択")
+	check(session.select_drop(Piece.Kind.SHOGI_SILVER), "持ち駒へ切替")
+	check_eq(session.selected_square(), Move.NO_SQUARE, "盤上選択解除")
+	check_eq(session.selected_drop_kind(), Piece.Kind.SHOGI_SILVER, "銀選択")
+	check(session.select(Vector2i(2, 2)), "盤上へ切替")
+	check_eq(session.selected_drop_kind(), -1, "持ち駒選択解除")
+
+	# AI相当の直接着手も全選択とcacheを解除する。
+	var event := session.apply_move(Move.new(Vector2i(2, 2), Vector2i(2, 3)))
+	check(event != null, "直接着手成功")
+	check(not session.is_selected(), "直接着手で全選択解除")
+	check_eq(session.legal_targets().size(), 0, "cache解除")
+
+
+func test_two_drop_plies_and_undo_restore_hands_board_event_and_selection() -> void:
+	var original := _drop_board()
+	original.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN] = 1
+	original.hands[Piece.Side.BLACK][Piece.Kind.SHOGI_SILVER] = 1
+	var session := GameSession.from_board(original)
+	check(session.apply_move(Move.drop(Piece.Kind.SHOGI_PAWN, Vector2i(4, 4))) != null, "先手歩打ち")
+	check(session.select_drop(Piece.Kind.SHOGI_SILVER), "後手銀選択")
+	check(session.try_move_to(Vector2i(5, 5)), "後手銀打ち")
+	check(session.can_undo(), "2プライでundo可能")
+	check(session.undo(), "打つ手2プライをundo")
+	check(session.board() == original, "元盤Objectへ復元")
+	check(session.board().piece_at(Vector2i(4, 4)) == null, "歩打ちを戻す")
+	check(session.board().piece_at(Vector2i(5, 5)) == null, "銀打ちを戻す")
+	check_eq(session.board().hands[Piece.Side.WHITE][Piece.Kind.SHOGI_PAWN], 1, "先手持ち歩復元")
+	check_eq(session.board().hands[Piece.Side.BLACK][Piece.Kind.SHOGI_SILVER], 1, "後手持ち銀復元")
+	check(not session.is_selected(), "undoで選択解除")
+	check_eq(session.legal_targets().size(), 0, "undoでcache解除")
+	check(session.last_move_event() == null, "undo後の直近着手表示を解除")
+
+
 func test_board_contract_missing_members_and_invalid_apply_fail_fast() -> void:
 	var null_output := _run_contract_probe("null_board")
 	check(null_output.contains("GameSession board must not be null"), "null盤をfail-fast")
@@ -105,6 +199,13 @@ func _promotion_board() -> ShogiBoard:
 	board.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
 	board.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
 	board.set_piece(Vector2i(4, 5), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_PAWN))
+	return board
+
+
+func _drop_board() -> ShogiBoard:
+	var board := ShogiBoard.empty()
+	board.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
 	return board
 
 

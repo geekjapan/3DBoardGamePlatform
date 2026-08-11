@@ -1,8 +1,7 @@
 class_name Move
 extends RefCounted
 
-## 1 手。通常移動・キャスリング・アンパッサン・昇格を表現する。
-## 将棋の打ち(drop)は from を NO_SQUARE にして is_drop を立てる想定(未使用)。
+## 1 手。通常移動・キャスリング・アンパッサン・昇格・将棋の打ちを表現する。
 
 const NO_SQUARE := Vector2i(-1, -1)
 
@@ -14,6 +13,8 @@ var promotion: int = -1
 var is_castling: bool = false
 var is_en_passant: bool = false
 var is_drop: bool = false
+## 打つ基本駒種。通常手は常に -1。
+var drop_kind: int = -1
 
 
 func _init(
@@ -23,6 +24,7 @@ func _init(
 	p_is_castling: bool = false,
 	p_is_en_passant: bool = false,
 	p_is_drop: bool = false,
+	p_drop_kind: int = -1,
 ) -> void:
 	from = p_from
 	to = p_to
@@ -30,6 +32,12 @@ func _init(
 	is_castling = p_is_castling
 	is_en_passant = p_is_en_passant
 	is_drop = p_is_drop
+	drop_kind = p_drop_kind
+
+
+static func drop(kind: int, p_to: Vector2i) -> Move:
+	## 将棋の打つ手を作る唯一の正規入口。合法性は盤が現在局面に対して検証する。
+	return Move.new(NO_SQUARE, p_to, -1, false, false, true, kind)
 
 
 func equals(other: Move) -> bool:
@@ -40,6 +48,7 @@ func equals(other: Move) -> bool:
 		and is_castling == other.is_castling
 		and is_en_passant == other.is_en_passant
 		and is_drop == other.is_drop
+		and drop_kind == other.drop_kind
 	)
 
 

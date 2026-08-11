@@ -144,9 +144,14 @@ func _board_hint(event: MoveEvent, utterance: SpeechUtterance) -> String:
 		return ""
 	var parts: PackedStringArray = []
 	if event.move != null:
-		parts.append(
-			"手: %s → %s" % [_square_label(event.from_square()), _square_label(event.to_square())]
-		)
+		if event.was_drop():
+			parts.append(
+				"打つ: %s → %s" % [SpeechCatalog.kind_name(event.mover_kind), _square_label(event.to_square())]
+			)
+		else:
+			parts.append(
+				"手: %s → %s" % [_square_label(event.from_square()), _square_label(event.to_square())]
+			)
 	if event.was_capture() and event.captured != null:
 		parts.append("取った駒: %s" % SpeechCatalog.kind_name(event.captured.kind))
 	if event.is_check:
@@ -163,7 +168,7 @@ func _board_hint(event: MoveEvent, utterance: SpeechUtterance) -> String:
 func _square_label(sq: Vector2i) -> String:
 	if sq.x < 0 or sq.y < 0:
 		return "?"
-	var file := char(97 + sq.x)  # a-h
+	var file := char(97 + sq.x)  # a-i
 	var rank := str(sq.y + 1)
 	return "%s%s" % [file, rank]
 

@@ -27,6 +27,15 @@ const _PROMOTED_KIND := {
 	Piece.Kind.SHOGI_BISHOP: Piece.Kind.SHOGI_HORSE,
 	Piece.Kind.SHOGI_ROOK: Piece.Kind.SHOGI_DRAGON,
 }
+const DROP_KINDS := [
+	Piece.Kind.SHOGI_PAWN,
+	Piece.Kind.SHOGI_LANCE,
+	Piece.Kind.SHOGI_KNIGHT,
+	Piece.Kind.SHOGI_SILVER,
+	Piece.Kind.SHOGI_GOLD,
+	Piece.Kind.SHOGI_BISHOP,
+	Piece.Kind.SHOGI_ROOK,
+]
 
 var width: int = WIDTH
 var height: int = HEIGHT
@@ -95,22 +104,39 @@ func legal_moves() -> Array:
 			var piece := piece_at(from)
 			if piece != null and piece.side == mover_side:
 				_gen_piece_moves(from, piece, candidates)
+	_gen_drop_moves(mover_side, candidates)
 	var legal: Array = []
 	for candidate in candidates:
 		var move := candidate as Move
 		var next := _apply_unchecked(move)
-		if not next.in_check(mover_side):
-			legal.append(move)
+		if next.in_check(mover_side):
+			continue
+		if _is_checkmating_pawn_drop(next, move, mover_side):
+			continue
+		legal.append(move)
 	return legal
 
 
 func apply(move: Move) -> ShogiBoard:
-	## 合法な通常移動を不変適用する。打つ手は Issue #26 の範囲。
+	## GameSession が現在の合法手へ再照合した手を不変適用する。
 	return _apply_unchecked(move)
 
 
 func _apply_unchecked(move: Move) -> ShogiBoard:
 	var board := clone()
+	if move.is_drop:
+		assert(_is_drop_kind(move.drop_kind), "invalid drop kind")
+		assert(board.piece_at(move.to) == null, "drop target must be empty")
+		var hand: Dictionary = board.hands[side_to_move]
+		var count := int(hand.get(move.drop_kind, 0))
+		assert(count > 0, "piece not in hand")
+		if count == 1:
+			hand.erase(move.drop_kind)
+		else:
+			hand[move.drop_kind] = count - 1
+		board._put(move.to, Piece.new(side_to_move, move.drop_kind))
+		board.side_to_move = Piece.opposite(side_to_move)
+		return board
 	var moving := board.piece_at(move.from)
 	assert(moving != null, "no piece on from")
 	var captured := board.piece_at(move.to)
@@ -151,6 +177,12 @@ func is_checkmate() -> bool:
 func is_stalemate() -> bool:
 	## 将棋にステイルメイト終局は無い。
 	return false
+
+
+func king_square(side: int = -1) -> Vector2i:
+	## 指定側(省略時は手番側)の玉位置。いなければ NO_SQUARE。
+	var checked_side := side_to_move if side < 0 else side
+	return _find_king(checked_side)
 
 
 func perft(depth: int) -> int:
@@ -198,6 +230,57 @@ func _gen_piece_moves(from: Vector2i, piece: Piece, out: Array) -> void:
 		Piece.Kind.SHOGI_DRAGON:
 			_gen_slides(from, piece.side, _ROOK_DIRS, out)
 			_gen_steps(from, piece.side, _BISHOP_DIRS, out)
+
+
+func _gen_drop_moves(side: int, out: Array) -> void:
+	var hand: Dictionary = hands[side]
+	for kind_variant in hand:
+		var kind := int(kind_variant)
+		if not _is_drop_kind(kind) or int(hand.get(kind, 0)) <= 0:
+			continue
+		for y in range(HEIGHT):
+			for x in range(WIDTH):
+				var to := Vector2i(x, y)
+				if piece_at(to) != null:
+					continue
+				if _drop_has_no_future(kind, side, y):
+					continue
+				if kind == Piece.Kind.SHOGI_PAWN and _has_unpromoted_pawn_on_file(side, x):
+					continue
+				out.append(Move.drop(kind, to))
+
+
+func _has_unpromoted_pawn_on_file(side: int, file: int) -> bool:
+	for y in range(HEIGHT):
+		var piece := piece_at(Vector2i(file, y))
+		if piece != null and piece.side == side and piece.kind == Piece.Kind.SHOGI_PAWN:
+			return true
+	return false
+
+
+static func _drop_has_no_future(kind: int, side: int, rank: int) -> bool:
+	var last_rank := HEIGHT - 1 if side == Piece.Side.WHITE else 0
+	if kind == Piece.Kind.SHOGI_PAWN or kind == Piece.Kind.SHOGI_LANCE:
+		return rank == last_rank
+	if kind == Piece.Kind.SHOGI_KNIGHT:
+		return rank >= HEIGHT - 2 if side == Piece.Side.WHITE else rank <= 1
+	return false
+
+
+static func _is_drop_kind(kind: int) -> bool:
+	return DROP_KINDS.has(kind)
+
+
+func _is_checkmating_pawn_drop(next: ShogiBoard, move: Move, mover_side: int) -> bool:
+	if not move.is_drop or move.drop_kind != Piece.Kind.SHOGI_PAWN:
+		return false
+	var enemy_king := next._find_king(Piece.opposite(mover_side))
+	if enemy_king == NO_SQUARE:
+		return false
+	var dropped := next.piece_at(move.to)
+	if dropped == null or not next._piece_attacks(move.to, dropped, enemy_king):
+		return false
+	return next.is_checkmate()
 
 
 func _gen_steps(from: Vector2i, side: int, deltas: Array, out: Array) -> void:

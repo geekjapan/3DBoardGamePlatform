@@ -179,7 +179,8 @@ func _process(_delta: float) -> void:
 	# 開閉ごとに結線せず毎フレーム見る。真偽値 3 つの比較で十分に軽い。
 	var modal := (_settings_panel != null and _settings_panel.visible) \
 		or (_team_panel != null and _team_panel.visible) \
-		or (_team_editor != null and _team_editor.visible)
+		or (_team_editor != null and _team_editor.visible) \
+		or (_controller != null and _controller.has_pending_promotion())
 	if _orbit != null:
 		_orbit.input_enabled = not modal
 	if _controller != null:

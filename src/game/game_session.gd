@@ -25,6 +25,8 @@ var _board: Object
 ## 着手前の盤を積む。undo で 2 枚戻す。
 var _history: Array = []
 var _selected: Vector2i = NO_SQUARE
+## 選択中の持ち駒Kind。盤上選択とは排他的で、未選択は -1。
+var _selected_drop_kind: int = -1
 ## selected 中の合法手キャッシュ。select / 盤更新で張り直す。
 var _legal_from_selected: Array = []
 ## 直近の成功した着手。失敗や未着手では null。
@@ -57,8 +59,12 @@ func selected_square() -> Vector2i:
 	return _selected
 
 
+func selected_drop_kind() -> int:
+	return _selected_drop_kind
+
+
 func is_selected() -> bool:
-	return _selected != NO_SQUARE
+	return _selected != NO_SQUARE or _selected_drop_kind >= 0
 
 
 func legal_targets() -> Array:
@@ -83,6 +89,16 @@ func legal_moves_to(to: Vector2i) -> Array:
 	return out
 
 
+func legal_drop_kinds() -> Array:
+	## 現在手番で1マス以上へ打てる持ち駒Kind(重複なし)。
+	var out: Array = []
+	for candidate in _board.legal_moves():
+		var move := candidate as Move
+		if move.is_drop and not out.has(move.drop_kind):
+			out.append(move.drop_kind)
+	return out
+
+
 func in_check() -> bool:
 	return _board.in_check()
 
@@ -101,8 +117,12 @@ func is_over() -> bool:
 
 func result_text() -> String:
 	if is_checkmate():
-		var winner := "黒" if side_to_move() == Piece.Side.WHITE else "白"
-		return "%sの勝ち (チェックメイト)" % winner
+		var is_shogi := _board is ShogiBoard
+		var winner := "後手" if side_to_move() == Piece.Side.WHITE else "先手"
+		if not is_shogi:
+			winner = "黒" if side_to_move() == Piece.Side.WHITE else "白"
+		var reason := "詰み" if is_shogi else "チェックメイト"
+		return "%sの勝ち (%s)" % [winner, reason]
 	if is_stalemate():
 		return "引き分け (ステイルメイト)"
 	return ""
@@ -119,13 +139,32 @@ func select(pos: Vector2i) -> bool:
 	var piece: Piece = _board.piece_at(pos)
 	if piece == null or piece.side != _board.side_to_move:
 		return false
+	_selected_drop_kind = -1
 	_selected = pos
 	_cache_legal_from_selected()
 	return true
 
 
+func select_drop(kind: int) -> bool:
+	## 現在の合法手に存在する完全な打つ手だけを選択キャッシュへ保持する。
+	if is_over():
+		return false
+	var candidates: Array = []
+	for candidate in _board.legal_moves():
+		var move := candidate as Move
+		if move.is_drop and move.drop_kind == kind:
+			candidates.append(move)
+	if candidates.is_empty():
+		return false
+	_selected = NO_SQUARE
+	_selected_drop_kind = kind
+	_legal_from_selected = candidates
+	return true
+
+
 func deselect() -> void:
 	_selected = NO_SQUARE
+	_selected_drop_kind = -1
 	_legal_from_selected.clear()
 
 
@@ -179,6 +218,7 @@ func undo() -> bool:
 	_history.pop_back()
 	_board = _history.pop_back() as Object
 	deselect()
+	_last_move_event = null
 	return true
 
 
@@ -204,6 +244,10 @@ func _build_move_event(move: Move) -> MoveEvent:
 	## 着手前の盤から、移動・取り・成りの事実を拾う。
 	var event := MoveEvent.new()
 	event.move = move
+	if move.is_drop:
+		event.mover_side = _board.side_to_move
+		event.mover_kind = move.drop_kind
+		return event
 	var mover: Piece = _board.piece_at(move.from)
 	assert(mover != null, "合法手なのに from に駒が無い")
 	event.mover_side = mover.side
@@ -224,7 +268,7 @@ func _build_move_event(move: Move) -> MoveEvent:
 
 func _cache_legal_from_selected() -> void:
 	_legal_from_selected.clear()
-	if not is_selected():
+	if _selected == NO_SQUARE:
 		return
 	for m in _board.legal_moves():
 		var move := m as Move
@@ -233,10 +277,16 @@ func _cache_legal_from_selected() -> void:
 
 
 func _find_matching_legal(want: Move) -> Move:
-	## from / to / promotion で合法手を探す(UCI 相当)。フラグの有無に依存しない。
+	## 特殊チェス旗は既存互換のため補完するが、打つ手の種別とKindは完全一致させる。
 	for m in _board.legal_moves():
 		var move := m as Move
-		if move.from == want.from and move.to == want.to and move.promotion == want.promotion:
+		if (
+			move.from == want.from
+			and move.to == want.to
+			and move.promotion == want.promotion
+			and move.is_drop == want.is_drop
+			and move.drop_kind == want.drop_kind
+		):
 			return move
 	return null
 

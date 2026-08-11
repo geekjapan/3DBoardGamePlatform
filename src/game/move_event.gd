@@ -50,6 +50,10 @@ func was_promotion() -> bool:
 	return promotion() >= 0
 
 
+func was_drop() -> bool:
+	return move != null and move.is_drop
+
+
 func was_castling() -> bool:
 	return move != null and move.is_castling
 
