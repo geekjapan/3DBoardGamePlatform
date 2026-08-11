@@ -138,3 +138,122 @@ func test_orbit_camera_clamps_zoom() -> void:
 	orbit.set_orbit(10.0, -90.0)
 	check_eq(orbit.pitch_degrees, orbit.min_pitch_degrees, "ピッチ下限")
 	orbit.free()
+
+
+func test_default_view_fits_whole_board_on_screen() -> void:
+	# 初期状態で盤の手前側が画面下に見切れていた。四隅が視野に収まることを固定する。
+	var orbit := OrbitCamera.new()
+	var half_v := deg_to_rad(75.0) * 0.5           # Camera3D の既定 FOV(縦)
+	var half_h := atan(tan(half_v) * (5.0 / 4.0))  # 想定しうる最も窮屈な横幅
+	var basis := Basis.from_euler(
+		Vector3(deg_to_rad(orbit.pitch_degrees), deg_to_rad(orbit.yaw_degrees), 0.0)
+	)
+	var pivot: Vector3 = basis * Vector3(0.0, -orbit.focus_lift, 0.0)
+	var cam_pos: Vector3 = pivot + basis * Vector3(0.0, 0.0, orbit.distance)
+	var inv := basis.inverse()
+
+	var worst := 0.0
+	for sx in [-4.0, 4.0]:
+		for sz in [-4.0, 4.0]:
+			for sy in [0.0, 1.2]:  # 盤面と駒の高さ
+				var local: Vector3 = inv * (Vector3(sx, sy, sz) - cam_pos)
+				check(local.z < 0.0, "盤の四隅がカメラの前にある")
+				worst = maxf(worst, absf(atan(local.y / -local.z)) / half_v)
+				worst = maxf(worst, absf(atan(local.x / -local.z)) / half_h)
+	check(worst < 1.0, "盤全体が視野に収まる(はみ出し率 %.2f)" % worst)
+	orbit.free()
+
+
+func test_orbit_camera_pan_follows_drag_and_clamps() -> void:
+	var orbit := OrbitCamera.new()
+	orbit.max_pan_distance = 5.0
+	# ヨー/ピッチ 0 なら画面右 = +X、画面上 = +Y。
+	orbit.set_orbit(0.0, 0.0)
+	orbit.reset_pan()
+
+	# 右へドラッグすると盤がカーソルに付いてくる = 注視点は左(-X)へ。
+	orbit.pan_by_screen_delta(Vector2(100.0, 0.0))
+	check(orbit.pan_offset.x < 0.0, "右ドラッグで注視点は -X へ")
+
+	# 下へドラッグすると盤は下がる = 注視点は上(+Y)へ。
+	orbit.reset_pan()
+	orbit.pan_by_screen_delta(Vector2(0.0, 100.0))
+	check(orbit.pan_offset.y > 0.0, "下ドラッグで注視点は +Y へ")
+
+	# 盤を見失わないよう上限で頭打ちにする。
+	orbit.reset_pan()
+	for i in 200:
+		orbit.pan_by_screen_delta(Vector2(500.0, 500.0))
+	check(orbit.pan_offset.length() <= orbit.max_pan_distance + 0.001, "上限でクランプ")
+
+	orbit.reset_pan()
+	check_eq(orbit.pan_offset, Vector3.ZERO, "リセットで盤中心へ戻る")
+	orbit.free()
+
+
+func test_camera_settings_roundtrip_and_reset() -> void:
+	# 実ファイルの user://settings.cfg は利用者の設定なので触らない。
+	var path := "user://test_camera_%d.cfg" % Time.get_ticks_usec()
+	var s := CameraSettings.load_or_default(path)
+	check(not s.has_saved_view(), "未保存なら既定構図のまま")
+
+	var orbit := OrbitCamera.new()
+	var default_distance := orbit.distance
+	orbit.set_orbit(80.0, -55.0)
+	orbit.set_distance(6.0)
+	orbit.pan_by_screen_delta(Vector2(120.0, 60.0))
+	var moved_pan := orbit.pan_offset
+
+	s.config_path = path
+	s.capture_from(orbit)
+	s.save_to_disk()
+
+	# 別のカメラに読み戻すと同じ構図になる。
+	var restored := CameraSettings.load_or_default(path)
+	check(restored.has_saved_view(), "保存済みとして扱われる")
+	var other := OrbitCamera.new()
+	restored.apply_to(other)
+	check_eq(other.distance, 6.0, "距離が復元される")
+	check_eq(other.yaw_degrees, 80.0, "ヨーが復元される")
+	check_eq(other.pitch_degrees, -55.0, "ピッチが復元される")
+	check(other.pan_offset.distance_to(moved_pan) < 0.001, "平行移動が復元される")
+
+	# 初期位置に戻すと保存が消え、既定構図に戻る。
+	restored.clear_saved_view()
+	check(not restored.has_saved_view(), "保存が消える")
+	var after := CameraSettings.load_or_default(path)
+	check(not after.has_saved_view(), "消えたことがディスクにも反映される")
+	var fresh := OrbitCamera.new()
+	check_eq(fresh.distance, default_distance, "既定の距離に戻る")
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	orbit.free()
+	other.free()
+	fresh.free()
+
+
+func test_camera_ignores_input_while_dialog_is_open() -> void:
+	# 設定ダイアログのスクロール端でホイールが消費されず、盤までズームが効いていた。
+	var orbit := OrbitCamera.new()
+	var start := orbit.distance
+
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+
+	orbit.input_enabled = false
+	orbit._unhandled_input(wheel)
+	check_eq(orbit.distance, start, "ダイアログ表示中はズームしない")
+
+	# 右ドラッグの平行移動も止まる。
+	orbit.reset_pan()
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_RIGHT
+	press.pressed = true
+	orbit._unhandled_input(press)
+	var motion := InputEventMouseMotion.new()
+	motion.relative = Vector2(100.0, 100.0)
+	orbit._unhandled_input(motion)
+	check_eq(orbit.pan_offset, Vector3.ZERO, "ダイアログ表示中は平行移動しない")
+
+	orbit.free()

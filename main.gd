@@ -20,6 +20,7 @@ var _controller: GameController
 var _board_view: BoardView
 var _hud: GameHud
 var _orbit: OrbitCamera
+var _camera_settings: CameraSettings
 var _speech_director: SpeechDirector
 var _speech_resolver: SpeechResolver
 var _llm_client: LlmSpeechClient
@@ -104,6 +105,9 @@ func _start_match() -> void:
 	_orbit = OrbitCamera.new()
 	_orbit.name = "OrbitCamera"
 	add_child(_orbit)
+	# 保存された視点があれば復元する。無ければ OrbitCamera の既定構図のまま。
+	_camera_settings = CameraSettings.load_or_default()
+	_camera_settings.apply_to(_orbit)
 
 	_hud = GameHud.new()
 	_hud.name = "GameHud"
@@ -131,6 +135,8 @@ func _start_match() -> void:
 	add_child(_settings_panel)
 	_settings_panel.settings_applied.connect(_on_settings_applied)
 	_settings_panel.speech_settings_applied.connect(_on_speech_settings_applied)
+	_settings_panel.view_save_requested.connect(_on_save_view)
+	_settings_panel.view_reset_requested.connect(_on_reset_view)
 
 	_speech_resolver = SpeechResolver.new(_catalog)
 	_speech_settings.apply_to_resolver(_speech_resolver)
@@ -153,6 +159,36 @@ func _start_match() -> void:
 
 func _on_open_settings() -> void:
 	_settings_panel.open_with(_settings, _speech_settings)
+
+
+func _process(_delta: float) -> void:
+	# ダイアログの開閉は複数箇所で起きる(自分で閉じるパネルもある)ため、
+	# 開閉ごとに結線せず毎フレーム見る。真偽値 3 つの比較で十分に軽い。
+	var modal := (_settings_panel != null and _settings_panel.visible) \
+		or (_team_panel != null and _team_panel.visible) \
+		or (_team_editor != null and _team_editor.visible)
+	if _orbit != null:
+		_orbit.input_enabled = not modal
+	if _controller != null:
+		_controller.input_enabled = not modal
+
+
+func _on_save_view() -> void:
+	if _camera_settings == null:
+		_camera_settings = CameraSettings.new()
+	_camera_settings.capture_from(_orbit)
+	_camera_settings.save_to_disk()
+
+
+func _on_reset_view() -> void:
+	if _camera_settings != null:
+		_camera_settings.clear_saved_view()
+	# OrbitCamera の既定構図へ戻す。
+	var fresh := OrbitCamera.new()
+	_orbit.set_orbit(fresh.yaw_degrees, fresh.pitch_degrees)
+	_orbit.reset_pan()
+	_orbit.set_distance(fresh.distance)
+	fresh.free()
 
 
 func _on_settings_applied(settings: AiSettings) -> void:
