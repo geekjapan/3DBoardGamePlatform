@@ -1,0 +1,7 @@
+# Godot 4 のエディタキャッシュとインポート済みアセット
+.godot/
+
+# ローカルパスや署名情報を含みうるため除外
+export_presets.cfg
+
+.DS_Store
