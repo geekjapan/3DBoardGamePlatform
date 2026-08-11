@@ -62,9 +62,12 @@ func _apply_visual(node: PieceNode, piece: Piece) -> void:
 	node.set_model(visual)
 	if visual.has_meta(CharacterModel.META_NEEDS_FIT):
 		CharacterModel.fit_to_square(visual, square_size)
-		# VRM は -Z を向く規約。盤は白側(rank 0)が +Z なので、白はそのままで
-		# 相手を向く。黒だけ反転させて向かい合わせる。
-		visual.rotation.y = PI if piece.side == Piece.Side.BLACK else 0.0
+		# 盤は白側(rank 0)が +Z。白は -Z を、黒は +Z を向けば向かい合う。
+		# モデルの素の向きは規約(-Z)を信じず実測する。MMD から変換したものは
+		# +Z を向いたままで、決め打ちにすると全員が盤の外を向く。
+		var wants_plus_z := piece.side == Piece.Side.BLACK
+		var model_faces_plus_z := CharacterAnimator.faces_plus_z(visual)
+		visual.rotation.y = 0.0 if wants_plus_z == model_faces_plus_z else PI
 
 
 func piece_count() -> int:

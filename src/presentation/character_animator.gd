@@ -123,6 +123,31 @@ func _bind(skeleton: Skeleton3D, bone_map: BoneMap) -> void:
 		_rest[idx] = skeleton.get_bone_pose_rotation(idx)
 
 
+static func faces_plus_z(model: Node3D) -> bool:
+	## モデルが +Z を向いているか。VRM 規約は -Z だが、MMD から変換したモデルは
+	## +Z のまま書き出されることがある。規約を信じると盤の外を向いてしまうので、
+	## 骨の左右で実測する。
+	##
+	## Godot は前方 -Z / 上 +Y / 右 +X。-Z を向くキャラの左手は -X 側に来る。
+	## 左手が +X 側にあるなら +Z を向いている。
+	if model == null:
+		return false
+	var skeleton := _find_skeleton(model)
+	var bone_map := _find_bone_map(model)
+	if skeleton == null:
+		return false
+	var left := _find_bone_for_role(skeleton, bone_map, "LeftHand")
+	var right := _find_bone_for_role(skeleton, bone_map, "RightHand")
+	if left < 0 or right < 0:
+		# 手が引けなければ足で見る。
+		left = _find_bone_for_role(skeleton, bone_map, "LeftFoot")
+		right = _find_bone_for_role(skeleton, bone_map, "RightFoot")
+	if left < 0 or right < 0:
+		return false
+	skeleton.force_update_all_bone_transforms()
+	return skeleton.get_bone_global_pose(left).origin.x > skeleton.get_bone_global_pose(right).origin.x
+
+
 static func _find_bone_for_role(skeleton: Skeleton3D, bone_map: BoneMap, role: String) -> int:
 	## VRM の骨格には 2 通りある。godot-vrm がボーンを標準名へ改名したものと、
 	## 変換元の名前のままのもの。試験用モデルでは BoneMap が変換元の "Left arm" を

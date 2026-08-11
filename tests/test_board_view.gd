@@ -364,8 +364,9 @@ func test_capture_animation_finishes_before_piece_disappears() -> void:
 
 
 func test_pieces_face_the_opponent() -> void:
-	# 全員が同じ方を向いていた。盤は白側が +Z、VRM は -Z を向く規約なので、
-	# 白はそのままで相手を向き、黒だけ反転させる。
+	# 全員が同じ方を向いていた。さらに VRM 規約(-Z 向き)を決め打ちにしたら、
+	# MMD から変換したモデルは +Z のままで全員が盤の外を向いた。素の向きは
+	# 骨の左右で実測し、白が -Z を、黒が +Z を向くように補正する。
 	var view := BoardView.new()
 	view.visual_factory = func(_side: int, _kind: int) -> Node3D:
 		var stand_in := Node3D.new()
@@ -373,11 +374,33 @@ func test_pieces_face_the_opponent() -> void:
 		return stand_in
 	view.build_from(Board.chess_start())
 
+	# 骨が無いモデルは -Z 向き扱い。白はそのまま、黒が反転する。
 	var white := view.piece_node_at(Vector2i(4, 0)).model_slot().get_child(0) as Node3D
 	var black := view.piece_node_at(Vector2i(4, 7)).model_slot().get_child(0) as Node3D
 	check(absf(white.rotation.y) < 0.001, "白はそのまま黒を向く")
 	check(absf(black.rotation.y - PI) < 0.001, "黒は反転して白を向く")
+	check(not CharacterAnimator.faces_plus_z(white), "骨が無ければ -Z 向き扱い")
 	view.free()
+
+
+func test_facing_is_measured_from_bones_not_assumed() -> void:
+	# 左手が +X 側にあるモデルは +Z を向いている。規約を信じると逆を向く。
+	var skeleton := Skeleton3D.new()
+	skeleton.add_bone("LeftHand")
+	skeleton.add_bone("RightHand")
+	skeleton.set_bone_rest(0, Transform3D(Basis(), Vector3(0.5, 1.0, 0.0)))
+	skeleton.set_bone_rest(1, Transform3D(Basis(), Vector3(-0.5, 1.0, 0.0)))
+	skeleton.reset_bone_poses()
+	var plus_z := Node3D.new()
+	plus_z.add_child(skeleton)
+	check(CharacterAnimator.faces_plus_z(plus_z), "左手が +X 側なら +Z 向き")
+
+	# 左右を入れ替えれば -Z 向きと判定される。
+	skeleton.set_bone_rest(0, Transform3D(Basis(), Vector3(-0.5, 1.0, 0.0)))
+	skeleton.set_bone_rest(1, Transform3D(Basis(), Vector3(0.5, 1.0, 0.0)))
+	skeleton.reset_bone_poses()
+	check(not CharacterAnimator.faces_plus_z(plus_z), "左手が -X 側なら -Z 向き")
+	plus_z.free()
 
 
 func test_base_pose_lowers_arms_from_t_pose() -> void:
