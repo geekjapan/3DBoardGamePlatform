@@ -395,3 +395,25 @@ func test_base_pose_lowers_arms_from_t_pose() -> void:
 		(base["RightUpperArm"] as Vector3).x,
 		"左右で下ろす量が同じ"
 	)
+
+
+func test_character_pieces_stay_grounded_while_idle() -> void:
+	# 待機の上下動は駒ノードごと動かすので、立っているキャラクターだと
+	# 足が地面から浮く。呼吸は骨格側が出すため、キャラのときは切る。
+	var node := PieceNode.new(Piece.Side.WHITE, Piece.Kind.KING, Vector2i(4, 0))
+	var stand_in := Node3D.new()
+	node.set_model(stand_in)
+	var rest := Vector3(1.0, 0.0, 2.0)
+	node.snap_to(rest)
+
+	# 仮の見た目(アニメータ無し)は従来どおり上下する。
+	node._process(0.2)
+	check(node.position.y != rest.y, "プリミティブは浮遊する")
+
+	# CharacterAnimator が居るときは動かさない。
+	var animator := CharacterAnimator.new()
+	stand_in.add_child(animator)
+	node.snap_to(rest)
+	node._process(0.2)
+	check_eq(node.position, rest, "キャラクターは接地したまま")
+	node.free()

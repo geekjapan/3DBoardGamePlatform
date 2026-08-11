@@ -62,6 +62,11 @@ func _init(
 func _process(delta: float) -> void:
 	if _anim_state != AnimState.IDLE:
 		return
+	if _find_character_animator(_model_slot) != null:
+		# 立っているキャラクターを上下させると足が地面から浮く。
+		# 生きている感じは CharacterAnimator の呼吸(体の姿勢)が出す。
+		position = _rest_position
+		return
 	_idle_phase += delta * IDLE_BOB_SPEED
 	var bob := sin(_idle_phase) * IDLE_BOB_AMPLITUDE
 	position = Vector3(_rest_position.x, _rest_position.y + bob, _rest_position.z)
