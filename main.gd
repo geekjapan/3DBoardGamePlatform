@@ -2,11 +2,12 @@ extends Node3D
 
 ## 起動シーン。ルールエンジンの初期配置を 3D 盤に載せ、クリックで対局する。
 ## 対局開始前に陣営ごとのチームを選び、選んだ割当でセリフを解決する。
-## LINES モードの定型セリフを SpeechDirector 経由で吹き出し表示する。
+## 発話モード(定型 / 音声 / 生成)を SpeechDirector 経由で吹き出し・読み上げに反映する。
 ## AI 対戦(Stockfish / UCI)と設定画面を結線する。
 
 
 var _settings: AiSettings
+var _speech_settings: SpeechSettings
 var _team_settings: TeamSettings
 var _catalog: SpeechCatalog
 var _ai_match: AiMatch
@@ -19,6 +20,8 @@ var _hud: GameHud
 var _orbit: OrbitCamera
 var _speech_director: SpeechDirector
 var _speech_resolver: SpeechResolver
+var _llm_client: LlmSpeechClient
+var _tts_speaker: TtsSpeaker
 var _match_started: bool = false
 
 
@@ -29,6 +32,8 @@ func _ready() -> void:
 	_settings = AiSettings.load_or_default()
 	_settings.refresh_engine_status()
 	# 起動時にエンジン無しなら AI はオフのまま 2 人対戦。
+
+	_speech_settings = SpeechSettings.load_or_default()
 
 	_catalog = SpeechCatalog.load_default()
 	_team_settings = TeamSettings.load_or_default()
@@ -91,22 +96,43 @@ func _start_match() -> void:
 	_settings_panel = SettingsPanel.new()
 	add_child(_settings_panel)
 	_settings_panel.settings_applied.connect(_on_settings_applied)
+	_settings_panel.speech_settings_applied.connect(_on_speech_settings_applied)
 
 	_speech_resolver = SpeechResolver.new(_catalog)
+	_speech_settings.apply_to_resolver(_speech_resolver)
+	_llm_client = LlmSpeechClient.new()
+	_llm_client.timeout_ms = _speech_settings.llm_timeout_ms
+	_tts_speaker = TtsSpeaker.new()
 	_speech_director = SpeechDirector.new()
 	_speech_director.name = "SpeechDirector"
 	add_child(_speech_director)
-	_speech_director.setup(session, _board_view, _speech_resolver, _board_view.square_size)
+	_speech_director.setup(
+		session,
+		_board_view,
+		_speech_resolver,
+		_board_view.square_size,
+		_speech_settings,
+		_llm_client,
+		_tts_speaker
+	)
 
 
 func _on_open_settings() -> void:
-	_settings_panel.open_with(_settings)
+	_settings_panel.open_with(_settings, _speech_settings)
 
 
 func _on_settings_applied(settings: AiSettings) -> void:
 	_settings = settings
 	_ai_match.rebind_settings(_settings)
 	_refresh_ai_badge()
+
+
+func _on_speech_settings_applied(settings: SpeechSettings) -> void:
+	_speech_settings = settings
+	if _speech_director != null:
+		_speech_director.apply_speech_settings(_speech_settings)
+	elif _speech_resolver != null:
+		_speech_settings.apply_to_resolver(_speech_resolver)
 
 
 func _refresh_ai_badge() -> void:

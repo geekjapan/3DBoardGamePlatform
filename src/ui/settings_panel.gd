@@ -1,13 +1,16 @@
 class_name SettingsPanel
 extends CanvasLayer
 
-## 設定画面。AI 対戦のオン/オフ・強さ・エンジンパスを編集し AiSettings に保存する。
+## 設定画面。AI 対戦と発話(モード・通常手確率)を編集し永続化する。
 ## エンジンが無いときは AI を選べず、その旨を表示する。
+## API キー入力欄は置かない(環境変数専用)。
 
 signal closed
 signal settings_applied(settings: AiSettings)
+signal speech_settings_applied(settings: SpeechSettings)
 
 var _settings: AiSettings
+var _speech: SpeechSettings
 var _root: Control
 var _panel: PanelContainer
 var _ai_check: CheckBox
@@ -15,6 +18,9 @@ var _strength_option: OptionButton
 var _path_edit: LineEdit
 var _status_label: Label
 var _protocol_label: Label
+var _speech_mode_option: OptionButton
+var _move_prob_slider: HSlider
+var _move_prob_value: Label
 
 
 func _init() -> void:
@@ -34,12 +40,12 @@ func _init() -> void:
 	_root.add_child(dim)
 
 	_panel = PanelContainer.new()
-	_panel.custom_minimum_size = Vector2(440, 320)
+	_panel.custom_minimum_size = Vector2(460, 460)
 	_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_panel.offset_left = -220
-	_panel.offset_top = -160
-	_panel.offset_right = 220
-	_panel.offset_bottom = 160
+	_panel.offset_left = -230
+	_panel.offset_top = -230
+	_panel.offset_right = 230
+	_panel.offset_bottom = 230
 	_root.add_child(_panel)
 
 	var margin := MarginContainer.new()
@@ -93,6 +99,51 @@ func _init() -> void:
 	_protocol_label.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
 	vbox.add_child(_protocol_label)
 
+	var sep := HSeparator.new()
+	vbox.add_child(sep)
+
+	var speech_title := Label.new()
+	speech_title.text = "発話"
+	speech_title.add_theme_font_size_override("font_size", 18)
+	vbox.add_child(speech_title)
+
+	var mode_row := HBoxContainer.new()
+	mode_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(mode_row)
+	var mode_label := Label.new()
+	mode_label.text = "発話モード"
+	mode_row.add_child(mode_label)
+	_speech_mode_option = OptionButton.new()
+	_speech_mode_option.add_item("定型", SpeechSettings.Mode.LINES)
+	_speech_mode_option.add_item("音声", SpeechSettings.Mode.TTS)
+	_speech_mode_option.add_item("生成", SpeechSettings.Mode.LLM)
+	mode_row.add_child(_speech_mode_option)
+
+	var prob_label := Label.new()
+	prob_label.text = "通常手の発話確率"
+	vbox.add_child(prob_label)
+
+	var prob_row := HBoxContainer.new()
+	prob_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(prob_row)
+	_move_prob_slider = HSlider.new()
+	_move_prob_slider.min_value = 0.0
+	_move_prob_slider.max_value = 1.0
+	_move_prob_slider.step = 0.05
+	_move_prob_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_move_prob_slider.value_changed.connect(_on_prob_changed)
+	prob_row.add_child(_move_prob_slider)
+	_move_prob_value = Label.new()
+	_move_prob_value.custom_minimum_size = Vector2(48, 0)
+	prob_row.add_child(_move_prob_value)
+
+	var key_hint := Label.new()
+	key_hint.text = "生成モードの API キーは環境変数 BOARDGAME_LLM_API_KEY または OPENAI_API_KEY のみ(設定には保存しません)"
+	key_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	key_hint.add_theme_font_size_override("font_size", 12)
+	key_hint.add_theme_color_override("font_color", Color(0.65, 0.7, 0.75))
+	vbox.add_child(key_hint)
+
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 12)
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
@@ -114,12 +165,16 @@ func _init() -> void:
 	btn_row.add_child(apply_btn)
 
 
-func open_with(settings: AiSettings) -> void:
+func open_with(settings: AiSettings, speech: SpeechSettings = null) -> void:
 	_settings = settings
+	_speech = speech if speech != null else SpeechSettings.load_or_default()
 	_path_edit.text = settings.engine_path
 	_select_strength(settings.strength)
 	_settings.refresh_engine_status()
 	_ai_check.button_pressed = settings.ai_enabled and settings.engine_available
+	_select_speech_mode(_speech.mode)
+	_move_prob_slider.value = clampf(_speech.move_probability, 0.0, 1.0)
+	_on_prob_changed(_move_prob_slider.value)
 	_refresh_enabled_state()
 	_protocol_label.text = "プロトコル: %s (将棋 USI は後から追加予定)" % settings.protocol
 	visible = true
@@ -131,6 +186,19 @@ func _select_strength(value: int) -> void:
 			_strength_option.select(i)
 			return
 	_strength_option.select(1)
+
+
+func _select_speech_mode(value: int) -> void:
+	for i in range(_speech_mode_option.item_count):
+		if _speech_mode_option.get_item_id(i) == value:
+			_speech_mode_option.select(i)
+			return
+	_speech_mode_option.select(0)
+
+
+func _on_prob_changed(value: float) -> void:
+	if _move_prob_value != null:
+		_move_prob_value.text = "%d%%" % int(round(value * 100.0))
 
 
 func _refresh_enabled_state() -> void:
@@ -166,6 +234,14 @@ func _on_apply() -> void:
 	_settings.save_to_disk()
 	_refresh_enabled_state()
 	settings_applied.emit(_settings)
+
+	if _speech == null:
+		_speech = SpeechSettings.new()
+	_speech.mode = _speech_mode_option.get_selected_id()
+	_speech.move_probability = clampf(float(_move_prob_slider.value), 0.0, 1.0)
+	_speech.save_to_disk()
+	speech_settings_applied.emit(_speech)
+
 	visible = false
 	closed.emit()
 
