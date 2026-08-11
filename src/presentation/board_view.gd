@@ -60,9 +60,11 @@ func _apply_visual(node: PieceNode, piece: Piece) -> void:
 	if visual == null:
 		visual = PlaceholderVisual.create(piece.side, piece.kind)
 	node.set_model(visual)
-	# モデルはツリーに入ってから実寸が測れる。仮の見た目は等倍のまま。
 	if visual.has_meta(CharacterModel.META_NEEDS_FIT):
 		CharacterModel.fit_to_square(visual, square_size)
+		# VRM は -Z を向く規約。盤は白側(rank 0)が +Z なので、白はそのままで
+		# 相手を向く。黒だけ反転させて向かい合わせる。
+		visual.rotation.y = PI if piece.side == Piece.Side.BLACK else 0.0
 
 
 func piece_count() -> int:

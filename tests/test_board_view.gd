@@ -347,3 +347,51 @@ func test_animator_resolves_bones_by_role_not_by_name() -> void:
 		"存在しない役割は -1(その役割を飛ばす)"
 	)
 	skeleton.free()
+
+
+func test_capture_animation_finishes_before_piece_disappears() -> void:
+	# アニメータ側が駒本体の Tween より長いと、倒れ切る前にノードが消えて
+	# 「倒れた」と読めない。実際に 0.5 秒 対 0.35 秒でずれていた。
+	check(
+		CharacterAnimator.CAPTURE_DURATION <= PieceNode.CAPTURE_DURATION_SEC,
+		"取られ演出が駒の寿命に収まる (%.2f <= %.2f)"
+			% [CharacterAnimator.CAPTURE_DURATION, PieceNode.CAPTURE_DURATION_SEC]
+	)
+	check(
+		CharacterAnimator.MOVE_DURATION <= PieceNode.MOVE_DURATION_SEC,
+		"移動演出も移動時間に収まる"
+	)
+
+
+func test_pieces_face_the_opponent() -> void:
+	# 全員が同じ方を向いていた。盤は白側が +Z、VRM は -Z を向く規約なので、
+	# 白はそのままで相手を向き、黒だけ反転させる。
+	var view := BoardView.new()
+	view.visual_factory = func(_side: int, _kind: int) -> Node3D:
+		var stand_in := Node3D.new()
+		stand_in.set_meta(CharacterModel.META_NEEDS_FIT, true)
+		return stand_in
+	view.build_from(Board.chess_start())
+
+	var white := view.piece_node_at(Vector2i(4, 0)).model_slot().get_child(0) as Node3D
+	var black := view.piece_node_at(Vector2i(4, 7)).model_slot().get_child(0) as Node3D
+	check(absf(white.rotation.y) < 0.001, "白はそのまま黒を向く")
+	check(absf(black.rotation.y - PI) < 0.001, "黒は反転して白を向く")
+	view.free()
+
+
+func test_base_pose_lowers_arms_from_t_pose() -> void:
+	# VRM は T ポーズが基準なので、素立ちのままだと腕が真横に広がった
+	# カカシになる。素立ちの補正が抜けたら気づけるようにする。
+	var base: Dictionary = CharacterAnimator.BASE_POSE
+	for role in ["LeftUpperArm", "RightUpperArm"]:
+		check(base.has(role), "%s に素立ちの補正がある" % role)
+		var degrees: Vector3 = base[role]
+		# 上腕は X の正回転で下がる(左右とも同符号)。実測で確認済み。
+		check(degrees.x > 30.0, "%s を下ろしている (X=%.0f度)" % [role, degrees.x])
+	# 左右で下ろす量が違うと片腕だけ上がって見える。
+	check_eq(
+		(base["LeftUpperArm"] as Vector3).x,
+		(base["RightUpperArm"] as Vector3).x,
+		"左右で下ろす量が同じ"
+	)

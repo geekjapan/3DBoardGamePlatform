@@ -12,6 +12,19 @@ extends Node
 
 enum Clip { IDLE, MOVE, CAPTURE }
 
+## 素立ちの補正。VRM は T ポーズが基準なので、そのまま置くと腕が真横に
+## 広がったカカシになる。常に適用してから、下のクリップを重ねる。
+##
+## 軸は実測で決めた。上腕は X の正回転で下がり(左右とも同符号)、Y は捻り、
+## Z は前後振り。肘は X の正回転で前へ曲がる。試験用モデルと安比の両方で
+## 同じ挙動だったので、humanoid の役割で書けば他のモデルにもそのまま効く。
+const BASE_POSE := {
+	"LeftUpperArm": Vector3(70.0, 0.0, 6.0),
+	"RightUpperArm": Vector3(70.0, 0.0, -6.0),
+	"LeftLowerArm": Vector3(12.0, 0.0, 0.0),
+	"RightLowerArm": Vector3(12.0, 0.0, 0.0),
+}
+
 ## 動きの定義。役割 → [X 軸, Y 軸, Z 軸] の振れ幅(度)。
 ## IDLE は sin で往復、MOVE と CAPTURE は一度だけ傾けて戻す。
 const POSES := {
@@ -37,9 +50,16 @@ const POSES := {
 }
 
 const IDLE_PERIOD := 3.4
-const MOVE_DURATION := 0.45
-const CAPTURE_DURATION := 0.5
+## 駒本体の Tween より長いと、倒れ切る前にノードが消えて動きが途中で切れる。
+## PieceNode の MOVE_DURATION_SEC / CAPTURE_DURATION_SEC に合わせる。
+const MOVE_DURATION := PieceNode.MOVE_DURATION_SEC
+const CAPTURE_DURATION := PieceNode.CAPTURE_DURATION_SEC
+## 取られたときに body ごと倒れる角度。骨の傾きだけでは「倒れた」と読めない。
+## 足元が原点なので、X 回転がそのまま踵を軸にした転倒になる。
+const TOPPLE_DEGREES := 82.0
 
+## 転倒はモデル全体を傾ける。向き(Y 回転)は BoardView が陣営で決めるので触らない。
+var _model: Node3D
 var _skeleton: Skeleton3D
 ## 役割 → ボーン番号。解決できた役割だけ入る。
 var _bones: Dictionary = {}
@@ -65,6 +85,7 @@ static func attach_to(model: Node3D) -> CharacterAnimator:
 	if animator._bones.is_empty():
 		animator.free()
 		return null
+	animator._model = model
 	model.add_child(animator)
 	return animator
 
@@ -89,6 +110,8 @@ func _bind(skeleton: Skeleton3D, bone_map: BoneMap) -> void:
 	# 同じ見た目が並んでも呼吸が揃わないよう、個体ごとに位相をずらす。
 	_phase = float(skeleton.get_instance_id() % 1000) / 1000.0 * TAU
 	var roles := {}
+	for role in BASE_POSE:
+		roles[role] = true
 	for pose in POSES.values():
 		for role in (pose as Dictionary):
 			roles[role] = true
@@ -132,20 +155,32 @@ func _process(delta: float) -> void:
 			# 取られる演出は戻さない。倒れたまま消える。
 			amount = minf(_elapsed / CAPTURE_DURATION, 1.0)
 	_apply(pose, amount)
+	_apply_topple(amount if _clip == Clip.CAPTURE else 0.0)
+
+
+func _apply_topple(amount: float) -> void:
+	if _model == null:
+		return
+	# 倒れ始めはゆっくり、途中から加速させる(棒が倒れる感じ)。
+	# 消えるまでに倒れ切るよう、終盤で 1.0 に届く曲線にする。
+	var eased := amount * amount * (3.0 - 2.0 * amount)
+	_model.rotation.x = deg_to_rad(TOPPLE_DEGREES) * eased
 
 
 func _apply(pose: Dictionary, amount: float) -> void:
 	for role in _bones:
 		var idx: int = _bones[role]
 		var rest: Quaternion = _rest[idx]
-		var degrees: Vector3 = pose.get(role, Vector3.ZERO)
+		# 素立ちの補正は常に効かせ、クリップの動きをその上に重ねる。
+		var degrees: Vector3 = BASE_POSE.get(role, Vector3.ZERO)
+		degrees += (pose.get(role, Vector3.ZERO) as Vector3) * amount
 		if degrees == Vector3.ZERO:
 			_skeleton.set_bone_pose_rotation(idx, rest)
 			continue
 		var offset := Quaternion.from_euler(Vector3(
-			deg_to_rad(degrees.x * amount),
-			deg_to_rad(degrees.y * amount),
-			deg_to_rad(degrees.z * amount)
+			deg_to_rad(degrees.x),
+			deg_to_rad(degrees.y),
+			deg_to_rad(degrees.z)
 		))
 		_skeleton.set_bone_pose_rotation(idx, rest * offset)
 

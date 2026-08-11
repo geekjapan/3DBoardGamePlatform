@@ -164,7 +164,10 @@ func play_capture() -> void:
 		# 代替: 沈みつつ透明化(メッシュ material を触る)。
 		_fade_meshes(0.0, CAPTURE_DURATION_SEC)
 	tween.tween_property(self, "position", end_pos, CAPTURE_DURATION_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(self, "scale", Vector3(0.15, 0.15, 0.15), CAPTURE_DURATION_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if _find_character_animator(_model_slot) == null:
+		# プリミティブの駒は縮んで消える。キャラクターは縮めない。
+		# 縮小と転倒を同時にやると、倒れる前に小さくなって何が起きたか読めない。
+		tween.tween_property(self, "scale", Vector3(0.15, 0.15, 0.15), CAPTURE_DURATION_SEC).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tween.finished.connect(_on_capture_tween_finished, CONNECT_ONE_SHOT)
 
 
