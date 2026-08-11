@@ -1,19 +1,30 @@
 extends Node3D
 
-## 起動シーン。ルールエンジンの初期配置を 3D 盤に載せ、オービットカメラで眺める。
-## 駒の移動操作はまだない(Issue #5)。
+## 起動シーン。ルールエンジンの初期配置を 3D 盤に載せ、クリックで 2 人対局する。
+
 
 func _ready() -> void:
 	_setup_environment()
 	_setup_light()
 
+	var session := GameSession.start()
+
 	var board_view := BoardView.new()
 	add_child(board_view)
-	board_view.build_from(Board.chess_start())
+	board_view.build_from(session.board())
 
 	var orbit := OrbitCamera.new()
 	orbit.name = "OrbitCamera"
 	add_child(orbit)
+
+	var hud := GameHud.new()
+	hud.name = "GameHud"
+	add_child(hud)
+
+	var controller := GameController.new()
+	controller.name = "GameController"
+	add_child(controller)
+	controller.setup(session, board_view, hud, orbit)
 
 
 func _setup_environment() -> void:
