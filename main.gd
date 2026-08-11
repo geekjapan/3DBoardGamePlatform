@@ -2,6 +2,7 @@ extends Node3D
 
 ## 起動シーン。ルールエンジンの初期配置を 3D 盤に載せ、クリックで対局する。
 ## 対局開始前に陣営ごとのチームを選び、選んだ割当でセリフを解決する。
+## 編成画面で駒種→キャラクターを編集し、user://teams に保存して次回起動でも使う。
 ## 発話モード(定型 / 音声 / 生成)を SpeechDirector 経由で吹き出し・読み上げに反映する。
 ## AI 対戦(Stockfish / UCI)と設定画面を結線する。
 
@@ -14,6 +15,7 @@ var _ai_match: AiMatch
 var _ai_overlay: AiOverlay
 var _settings_panel: SettingsPanel
 var _team_panel: TeamSelectPanel
+var _team_editor: TeamEditorPanel
 var _controller: GameController
 var _board_view: BoardView
 var _hud: GameHud
@@ -36,12 +38,20 @@ func _ready() -> void:
 	_speech_settings = SpeechSettings.load_or_default()
 
 	_catalog = SpeechCatalog.load_default()
+	# ユーザーが保存した編成を取り込み、チーム選択に出す。
+	TeamStore.load_into_catalog(_catalog)
 	_team_settings = TeamSettings.load_or_default()
 	_team_settings.apply_to_catalog(_catalog)
+
+	_team_editor = TeamEditorPanel.new()
+	add_child(_team_editor)
+	_team_editor.saved.connect(_on_team_edited)
+	_team_editor.closed.connect(_on_team_editor_closed)
 
 	_team_panel = TeamSelectPanel.new()
 	add_child(_team_panel)
 	_team_panel.confirmed.connect(_on_teams_confirmed)
+	_team_panel.edit_requested.connect(_on_open_team_editor)
 	# 対局開始時に先手・後手を独立選択(同一チームも可)。保持済み選択を初期値に。
 	_team_panel.open_with(_catalog, _team_settings)
 
@@ -56,6 +66,30 @@ func _on_teams_confirmed(settings: TeamSettings) -> void:
 		_refresh_team_badge()
 		return
 	_start_match()
+
+
+func _on_open_team_editor() -> void:
+	_team_panel.visible = false
+	var prefer := ""
+	if _team_settings != null:
+		prefer = _team_settings.white_team_id
+	_team_editor.open_with(_catalog, TeamStore.USER_TEAMS_DIR, prefer)
+
+
+func _on_team_edited(team: TeamDef) -> void:
+	if team == null or _catalog == null:
+		return
+	_catalog.teams[team.id] = team
+	if _team_panel != null:
+		_team_panel.refresh_options()
+
+
+func _on_team_editor_closed() -> void:
+	if _match_started:
+		return
+	# 対局前ならチーム選択に戻す。
+	if _team_panel != null and _team_settings != null:
+		_team_panel.open_with(_catalog, _team_settings)
 
 
 func _start_match() -> void:
