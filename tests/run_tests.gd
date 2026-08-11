@@ -12,6 +12,7 @@ extends SceneTree
 ## 失敗にしている。ここで検知できるのは読み込み失敗と `check` の失敗のみ。
 
 const TESTS_DIR := "res://tests"
+const Case := preload("res://tests/case.gd")
 
 
 func _initialize() -> void:
@@ -27,6 +28,10 @@ func _initialize() -> void:
 		for method_name in _test_methods(script):
 			ran += 1
 			var test_case: Variant = script.new()
+			if not (test_case is Case):
+				failed += 1
+				print("FAIL %s::%s — tests/case.gd を継承していません" % [path.get_file(), method_name])
+				continue
 			test_case.call(method_name)
 			for message: String in test_case.failures:
 				failed += 1

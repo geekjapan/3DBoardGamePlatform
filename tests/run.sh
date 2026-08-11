@@ -8,7 +8,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-log=$(mktemp)
+log=$(mktemp "${TMPDIR:-/tmp}/godot-tests.XXXXXX")
 trap 'rm -f "$log"' EXIT
 
 "${GODOT:-godot}" --headless --path . --script res://tests/run_tests.gd 2>&1 | tee "$log"
