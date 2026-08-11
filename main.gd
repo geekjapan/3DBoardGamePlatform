@@ -1,6 +1,7 @@
 extends Node3D
 
 ## 起動シーン。ルールエンジンの初期配置を 3D 盤に載せ、クリックで 2 人対局する。
+## LINES モードの定型セリフを SpeechDirector 経由で吹き出し表示する。
 
 
 func _ready() -> void:
@@ -25,6 +26,13 @@ func _ready() -> void:
 	controller.name = "GameController"
 	add_child(controller)
 	controller.setup(session, board_view, hud, orbit)
+
+	var catalog := SpeechCatalog.load_default()
+	var resolver := SpeechResolver.new(catalog)
+	var director := SpeechDirector.new()
+	director.name = "SpeechDirector"
+	add_child(director)
+	director.setup(session, board_view, resolver, board_view.square_size)
 
 
 func _setup_environment() -> void:

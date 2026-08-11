@@ -1,0 +1,12 @@
+{
+  "id": "default",
+  "display_name": "デフォルトチーム",
+  "assignments": {
+    "pawn": "hotblood",
+    "knight": "hotblood",
+    "bishop": "calm",
+    "rook": "calm",
+    "queen": "tsundere",
+    "king": "tsundere"
+  }
+}
