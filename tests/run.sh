@@ -8,10 +8,17 @@
 set -u
 cd "$(dirname "$0")/.."
 
+GODOT_BIN="${GODOT:-godot}"
+
+# class_name はグローバルクラスキャッシュが無いとヘッドレスで解決できない。
+if [ ! -f .godot/global_script_class_cache.cfg ]; then
+	"$GODOT_BIN" --headless --path . --import >/dev/null 2>&1 || true
+fi
+
 log=$(mktemp "${TMPDIR:-/tmp}/godot-tests.XXXXXX")
 trap 'rm -f "$log"' EXIT
 
-"${GODOT:-godot}" --headless --path . --script res://tests/run_tests.gd 2>&1 | tee "$log"
+"$GODOT_BIN" --headless --path . --script res://tests/run_tests.gd 2>&1 | tee "$log"
 status=${PIPESTATUS[0]}
 
 if grep -q 'SCRIPT ERROR' "$log"; then
