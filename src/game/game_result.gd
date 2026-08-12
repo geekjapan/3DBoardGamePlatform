@@ -3,10 +3,10 @@ extends RefCounted
 
 ## GameSession が所有する終局結果。
 ##
-## 終局理由だけでなく、勝敗の向きもここに保持する。ステイルメイトの
-## ような引き分けでは両方の side を NO_SIDE とする。
+## 終局理由だけでなく、勝敗の向きもここに保持する。ステイルメイトや
+## 通常の千日手のような引き分けでは両方の side を NO_SIDE とする。
 
-enum Reason { CHECKMATE, STALEMATE, RESIGN }
+enum Reason { CHECKMATE, STALEMATE, RESIGN, SENNICHITE }
 
 const NO_SIDE := -1
 

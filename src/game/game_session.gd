@@ -31,7 +31,7 @@ var _selected_drop_kind: int = -1
 var _legal_from_selected: Array = []
 ## 直近の成功した着手。失敗や未着手では null。
 var _last_move_event: MoveEvent = null
-## 盤面から導出できない外部終局(現在は投了)だけを保持する。
+## 現在盤だけから導出できない終局(投了・将棋の千日手)を保持する。
 var _external_result: GameResult = null
 
 
@@ -154,6 +154,13 @@ func result_text() -> String:
 			if not (_board is ShogiBoard):
 				resign_winner = "黒" if current.winner_side == Piece.Side.BLACK else "白"
 			return "%sの勝ち (投了)" % resign_winner
+		GameResult.Reason.SENNICHITE:
+			if current.loser_side == GameResult.NO_SIDE:
+				return "引き分け (千日手)"
+			var repetition_winner := (
+				"後手" if current.winner_side == Piece.Side.BLACK else "先手"
+			)
+			return "%sの勝ち (連続王手の千日手)" % repetition_winner
 	return ""
 
 
@@ -275,14 +282,79 @@ func _commit_move(move: Move) -> MoveEvent:
 		return null
 	_history.append(_board)
 	_board = validated_next
+	_resolve_shogi_repetition()
 	event.is_check = _board.in_check()
 	event.is_checkmate = _board.is_checkmate()
 	event.is_stalemate = _board.is_stalemate()
-	event.is_over = event.is_checkmate or event.is_stalemate
+	event.is_over = result() != null
 	event.result_text = result_text()
 	_last_move_event = event
 	deselect()
 	return event
+
+
+func _resolve_shogi_repetition() -> void:
+	if not (_board is ShogiBoard):
+		return
+	var positions := _history.duplicate()
+	positions.append(_board)
+	var current_key := _shogi_position_key(_board as ShogiBoard)
+	var occurrences: Array[int] = []
+	for index in range(positions.size()):
+		var position := positions[index] as ShogiBoard
+		if _shogi_position_key(position) == current_key:
+			occurrences.append(index)
+	if occurrences.size() < 4:
+		return
+	var repetition_start := occurrences[occurrences.size() - 4]
+	var checking_loser := _continuous_checking_side(
+		positions,
+		repetition_start,
+		positions.size() - 1,
+	)
+	if checking_loser == GameResult.NO_SIDE:
+		_external_result = GameResult.new(GameResult.Reason.SENNICHITE)
+		return
+	_external_result = GameResult.new(
+		GameResult.Reason.SENNICHITE,
+		Piece.opposite(checking_loser),
+		checking_loser,
+	)
+
+
+func _continuous_checking_side(positions: Array, start_index: int, end_index: int) -> int:
+	## 同一局面の最初から4回目まで、自分の全着手が王手だった側だけを反則側とする。
+	for side in [Piece.Side.WHITE, Piece.Side.BLACK]:
+		var moved := false
+		var every_move_was_check := true
+		for index in range(start_index + 1, end_index + 1):
+			var after_move := positions[index] as ShogiBoard
+			if Piece.opposite(after_move.side_to_move) != side:
+				continue
+			moved = true
+			if not after_move.in_check():
+				every_move_was_check = false
+				break
+		if moved and every_move_was_check:
+			return side
+	return GameResult.NO_SIDE
+
+
+func _shogi_position_key(position: ShogiBoard) -> String:
+	## 千日手の同一局面: 盤上の駒、両者の持ち駒、手番をすべて含む。
+	var fields := PackedStringArray([str(position.side_to_move)])
+	for y in range(position.height):
+		for x in range(position.width):
+			var piece := position.piece_at(Vector2i(x, y))
+			if piece == null:
+				fields.append("-")
+			else:
+				fields.append("%d:%d" % [piece.side, piece.kind])
+	for side in [Piece.Side.WHITE, Piece.Side.BLACK]:
+		var hand: Dictionary = position.hands[side]
+		for kind in ShogiBoard.DROP_KINDS:
+			fields.append(str(int(hand.get(kind, 0))))
+	return ",".join(fields)
 
 
 func _build_move_event(move: Move) -> MoveEvent:

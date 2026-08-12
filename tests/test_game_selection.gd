@@ -186,6 +186,38 @@ func test_main_shogi_start_is_9x9_with_hands_and_usi_fallback() -> void:
 	main.free()
 
 
+func test_main_reset_view_refits_the_active_chess_and_shogi_board() -> void:
+	for case in [
+		{"game_id": SpeechCatalog.GAME_CHESS, "expected_distance": 7.5},
+		{"game_id": SpeechCatalog.GAME_SHOGI, "expected_distance": 9.5},
+	]:
+		var main := _prepared_main(str(case["game_id"]))
+		check(main._start_match(), "%s start 成功" % case["game_id"])
+		var settings_path := "user://test_reset_view_%s_%d.cfg" % [
+			case["game_id"], Time.get_ticks_usec(),
+		]
+		main._camera_settings = CameraSettings.new()
+		main._camera_settings.config_path = settings_path
+		main._orbit.set_orbit(80.0, -70.0)
+		main._orbit.set_pan(Vector3(2.0, 1.0, -1.0))
+		main._orbit.set_distance(3.0)
+
+		main._on_reset_view()
+
+		var fresh := OrbitCamera.new()
+		check_eq(main._orbit.yaw_degrees, fresh.yaw_degrees, "%s reset yaw" % case["game_id"])
+		check_eq(main._orbit.pitch_degrees, fresh.pitch_degrees, "%s reset pitch" % case["game_id"])
+		check_eq(main._orbit.pan_offset, Vector3.ZERO, "%s reset pan" % case["game_id"])
+		check_eq(
+			main._orbit.distance,
+			float(case["expected_distance"]),
+			"%s active board 寸法を reset 後に再適用" % case["game_id"],
+		)
+		fresh.free()
+		main.free()
+		_cleanup_file(settings_path)
+
+
 func _prepared_main(game_id: String) -> Node3D:
 	var main: Node3D = MainScript.new()
 	main._settings = AiSettings.new()

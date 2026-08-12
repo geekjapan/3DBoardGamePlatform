@@ -84,6 +84,100 @@ func test_successful_two_ply_undo_clears_resignation_and_restores_state() -> voi
 	check(session.board().piece_at(Vector2i(4, 4)) == null, "黒ポーン移動先を復元")
 
 
+func test_shogi_fourfold_repetition_is_a_dedicated_draw_result() -> void:
+	var board := ShogiBoard.empty()
+	board.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	var session := GameSession.from_board(board)
+	var cycle := [
+		Move.new(Vector2i(0, 0), Vector2i(1, 0)),
+		Move.new(Vector2i(8, 8), Vector2i(7, 8)),
+		Move.new(Vector2i(1, 0), Vector2i(0, 0)),
+		Move.new(Vector2i(7, 8), Vector2i(8, 8)),
+	]
+	var final_event: MoveEvent = null
+	for repetition in range(3):
+		for move in cycle:
+			final_event = session.apply_move(move as Move)
+			check(final_event != null, "通常反復 cycle=%d の合法手" % repetition)
+		if repetition < 2:
+			check(not session.is_over(), "%d 回目の同一局面では継続" % (repetition + 2))
+	var current := session.result()
+	check(current != null, "4 回目の同一局面で終局")
+	check_eq(current.reason, GameResult.Reason.SENNICHITE, "千日手専用理由")
+	check_eq(current.winner_side, GameResult.NO_SIDE, "通常千日手は勝者なし")
+	check_eq(current.loser_side, GameResult.NO_SIDE, "通常千日手は敗者なし")
+	check(session.result_text().contains("千日手"), "千日手結果文")
+	check(final_event != null and final_event.is_over, "終端 MoveEvent は game over")
+
+
+func test_shogi_continuous_check_repetition_loses_for_the_checking_side() -> void:
+	for checking_side in [Piece.Side.WHITE, Piece.Side.BLACK]:
+		var session_and_cycle := _continuous_check_session(checking_side)
+		var session: GameSession = session_and_cycle["session"]
+		var cycle: Array = session_and_cycle["cycle"]
+		for repetition in range(3):
+			for move in cycle:
+				check(
+					session.apply_move(move as Move) != null,
+					"連続王手 side=%d cycle=%d の合法手" % [checking_side, repetition],
+				)
+		var current := session.result()
+		check(current != null, "連続王手の4回同一局面で終局 side=%d" % checking_side)
+		check_eq(current.reason, GameResult.Reason.SENNICHITE, "連続王手も千日手理由")
+		check_eq(current.loser_side, checking_side, "王手を続けた側が反則負け")
+		check_eq(current.winner_side, Piece.opposite(checking_side), "反対側が勝者")
+		check(session.result_text().contains("連続王手"), "通常千日手と異なる結果文")
+
+
+func test_chess_repetition_does_not_use_shogi_sennichite_result() -> void:
+	var session := GameSession.from_board(
+		Board.from_fen("1n2k3/8/8/8/8/8/8/1N2K3 w - - 0 1")
+	)
+	var cycle := [
+		"b1a3",
+		"b8a6",
+		"a3b1",
+		"a6b8",
+	]
+	for repetition in range(3):
+		for uci in cycle:
+			check(session.apply_move(_legal_move(session, uci)) != null, "chess repetition %s" % uci)
+	check(not session.is_over(), "chess の既存反復挙動は変更しない")
+	check(session.result() == null, "chess に千日手を適用しない")
+
+
+func _continuous_check_session(checking_side: int) -> Dictionary:
+	var board := ShogiBoard.empty()
+	if checking_side == Piece.Side.WHITE:
+		board.side_to_move = Piece.Side.WHITE
+		board.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+		board.set_piece(Vector2i(4, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+		board.set_piece(Vector2i(5, 7), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_ROOK))
+		return {
+			"session": GameSession.from_board(board),
+			"cycle": [
+				Move.new(Vector2i(5, 7), Vector2i(4, 7)),
+				Move.new(Vector2i(4, 8), Vector2i(5, 8)),
+				Move.new(Vector2i(4, 7), Vector2i(5, 7)),
+				Move.new(Vector2i(5, 8), Vector2i(4, 8)),
+			],
+		}
+	board.side_to_move = Piece.Side.BLACK
+	board.set_piece(Vector2i(4, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(0, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	board.set_piece(Vector2i(5, 1), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_ROOK))
+	return {
+		"session": GameSession.from_board(board),
+		"cycle": [
+			Move.new(Vector2i(5, 1), Vector2i(4, 1)),
+			Move.new(Vector2i(4, 0), Vector2i(5, 0)),
+			Move.new(Vector2i(4, 1), Vector2i(5, 1)),
+			Move.new(Vector2i(5, 0), Vector2i(4, 0)),
+		],
+	}
+
+
 func _legal_move(session: GameSession, uci: String) -> Move:
 	for candidate in session.board().legal_moves():
 		var move := candidate as Move

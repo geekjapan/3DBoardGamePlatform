@@ -290,6 +290,8 @@ func _on_reset_view() -> void:
 	_orbit.reset_pan()
 	_orbit.set_distance(fresh.distance)
 	fresh.free()
+	if _controller != null:
+		_controller.ensure_active_board_fits()
 
 
 func _on_settings_applied(settings: AiSettings) -> void:

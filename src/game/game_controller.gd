@@ -36,9 +36,7 @@ func setup(
 	hud = p_hud
 	orbit = p_orbit
 	ai_match = p_ai_match
-	if orbit != null:
-		var board := session.board()
-		orbit.ensure_board_fits(Vector2i(board.width, board.height))
+	ensure_active_board_fits()
 	if not hud.undo_pressed.is_connected(_on_undo):
 		hud.undo_pressed.connect(_on_undo)
 	if not hud.drop_pressed.is_connected(_on_drop_pressed):
@@ -55,6 +53,14 @@ func setup(
 	_refresh_view()
 	if ai_match != null:
 		ai_match.on_position_changed()
+
+
+func ensure_active_board_fits() -> void:
+	## 保存視点の復元時と view reset 後の両方で、現在の対局盤を基準に収める。
+	if orbit == null or session == null:
+		return
+	var active_board := session.board()
+	orbit.ensure_board_fits(Vector2i(active_board.width, active_board.height))
 
 
 func _unhandled_input(event: InputEvent) -> void:
