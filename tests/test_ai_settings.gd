@@ -217,6 +217,32 @@ func test_unavailable_engine_allows_only_enabled_to_disabled_transition() -> voi
 	_cleanup(disabled_path)
 
 
+func test_recovered_engine_allows_enabling_and_persists_selection() -> void:
+	var path := _path("panel_recovered_engine")
+	var settings := AiSettings.new()
+	settings.config_path = path
+	settings.usi.engine_path = ""
+	settings.usi.enabled = false
+	var panel := SettingsPanel.new()
+	panel.open_for_game(settings, "shogi", SpeechSettings.new())
+	check(not settings.usi.engine_available, "空USI profileは利用不可で開始")
+	check(panel._ai_check.disabled, "利用不可のoffはon操作を禁止")
+
+	panel._path_edit.text = ProjectSettings.globalize_path("res://tests/fake_usi_engine.sh")
+	panel._on_probe()
+	check(settings.usi.engine_available, "再probeでUSI profileが利用可能へ回復")
+	check(not panel._ai_check.disabled, "利用可能へ回復後はenabled controlを再有効化")
+	panel._ai_check.button_pressed = true
+	check(panel._ai_check.button_pressed, "回復後はoffからonを選択可能")
+	panel._on_apply()
+	check(settings.usi.enabled, "回復したprofileのonを保存")
+	check(not panel._ai_check.disabled, "保存後もenabled controlは操作可能")
+	var loaded := AiSettings.load_or_default(path)
+	check(loaded.usi.enabled, "再読込後も回復したUSI profileはon")
+	panel.free()
+	_cleanup(path)
+
+
 func _path(prefix: String) -> String:
 	return "user://test_ai_settings_%s_%d.cfg" % [prefix, Time.get_ticks_usec()]
 

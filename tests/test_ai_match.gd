@@ -222,6 +222,8 @@ func test_retry_same_revision_is_one_search_and_repeated_click_is_blocked() -> v
 	_advance_to_ai(session, ai, _move_by_squares(session.board(), Vector2i(2, 2), Vector2i(2, 3)))
 	_finish_pending(ai, stub)
 	var failed_board := session.board()
+	var failed_result := session.result()
+	var failed_result_text := session.result_text()
 	check(ai.is_failed(), "初回探索は失敗")
 	check_eq(stub.search_count, 1, "初回は探索1回")
 
@@ -233,7 +235,14 @@ func test_retry_same_revision_is_one_search_and_repeated_click_is_blocked() -> v
 	_finish_pending(ai, stub)
 	check_eq(stub.search_count, 2, "再試行は探索1回だけ")
 	check(not ai.is_failed(), "成功再試行で障害解除")
+	check(session.board() != failed_board, "再試行成功で合法なAI手を盤面へ適用")
+	var moved_piece: Piece = session.board().piece_at(Vector2i(6, 5))
+	check(moved_piece != null, "再試行成功手の到着先に駒")
+	if moved_piece != null:
+		check_eq(moved_piece.kind, Piece.Kind.SHOGI_PAWN, "再試行成功のUSI手を適用")
 	check_eq(session.side_to_move(), Piece.Side.WHITE, "再試行成功で人手番")
+	check_eq(session.result(), failed_result, "再試行成功でGameResult不変")
+	check_eq(session.result_text(), failed_result_text, "再試行成功でresult_text不変")
 	_cleanup_match(ai, stub)
 
 
@@ -295,6 +304,53 @@ func test_rebind_disabled_profile_clears_failed_runtime_without_mutating_session
 	check_eq(session.result(), failed_result, "rebindでGameResult不変")
 	check_eq(session.result_text(), failed_result_text, "rebindでGameSession.result_text不変")
 	_cleanup_match(ai, stub)
+
+
+func test_fresh_match_does_not_inherit_failed_runtime_from_previous_game() -> void:
+	var settings := _settings("usi")
+	var failed_session := GameSession.from_board(ShogiBoard.start())
+	var failed_stub := ControlledAdapter.new()
+	failed_stub.queue_result(EngineAdapter.SearchStatus.PROCESS_EXITED, "", "engine stopped")
+	var failed_ai := _new_match(failed_session, failed_stub, "usi", settings)
+	_advance_to_ai(
+		failed_session,
+		failed_ai,
+		_move_by_squares(failed_session.board(), Vector2i(2, 2), Vector2i(2, 3)),
+	)
+	_finish_pending(failed_ai, failed_stub)
+	check(failed_ai.is_failed(), "前対局はFAILED")
+	check_eq(
+		failed_ai.failure_details().get("classification", ""),
+		"PROCESS_EXITED",
+		"前対局はerror分類を保持",
+	)
+
+	var fresh_session := GameSession.from_board(ShogiBoard.start())
+	var initial_board := fresh_session.board()
+	var fresh_stub := ControlledAdapter.new()
+	_factory_adapter = fresh_stub
+	var fresh_ai := AiMatch.new()
+	var status_messages: Array[String] = []
+	var failure_events: Array[Dictionary] = []
+	fresh_ai.status_message.connect(func(text: String) -> void: status_messages.append(text))
+	fresh_ai.failure_changed.connect(func(details: Dictionary) -> void: failure_events.append(details))
+	fresh_ai.adapter_factory = Callable(self, "_make_adapter")
+	fresh_ai.setup(fresh_session, settings, "usi")
+
+	check_eq(fresh_ai._runtime_state, AiMatch.RuntimeState.ACTIVE, "別対局はACTIVE初期state")
+	check(not fresh_ai.is_failed(), "別対局はstale FAILEDを継承しない")
+	check(fresh_ai.failure_details().is_empty(), "別対局はstale errorを継承しない")
+	check(status_messages.is_empty(), "別対局はstale statusを発火しない")
+	check(failure_events.is_empty(), "別対局はstale failureを発火しない")
+	check(fresh_ai.is_ai_enabled(), "別対局は保存profileから通常有効")
+	check(not fresh_ai.is_thinking(), "別対局は非思考中で開始")
+	check(not fresh_ai.is_ai_turn(), "別対局は通常の人手番で開始")
+	check_eq(fresh_session.board(), initial_board, "別対局は初期盤面を保持")
+	check_eq(fresh_session.side_to_move(), Piece.Side.WHITE, "別対局は初期手番")
+	check(fresh_session.result() == null, "別対局は未終局")
+	check_eq(fresh_session.result_text(), "", "別対局はstale result_textを持たない")
+	_cleanup_match(failed_ai, failed_stub)
+	_cleanup_match(fresh_ai, fresh_stub)
 
 
 func test_cancelled_and_stale_results_are_ignored() -> void:
