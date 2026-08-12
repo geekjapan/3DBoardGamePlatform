@@ -81,11 +81,11 @@ static func delete_team_file(team_id: String, dir_path: String = USER_TEAMS_DIR)
 
 static func team_to_dict(team: TeamDef) -> Dictionary:
 	var assigns: Dictionary = {}
-	for kind in [
-		Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
-		Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
-	]:
-		var cid := team.character_id_for_kind(kind).strip_edges()
+	for kind in SpeechCatalog.ALL_KINDS:
+		# 解決時フォールバックは暗黙 assignment として保存しない。
+		if not team.assignments.has(kind):
+			continue
+		var cid := str(team.assignments[kind]).strip_edges()
 		if cid == "":
 			continue
 		var kn := SpeechCatalog.kind_name(kind)

@@ -11,6 +11,12 @@ const UNASSIGNED_LABEL := "(未割当)"
 const KIND_ORDER: Array = [
 	Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
 	Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
+	Piece.Kind.SHOGI_PAWN, Piece.Kind.SHOGI_LANCE, Piece.Kind.SHOGI_KNIGHT,
+	Piece.Kind.SHOGI_SILVER, Piece.Kind.SHOGI_GOLD, Piece.Kind.SHOGI_BISHOP,
+	Piece.Kind.SHOGI_ROOK, Piece.Kind.SHOGI_KING,
+	Piece.Kind.SHOGI_PROMOTED_PAWN, Piece.Kind.SHOGI_PROMOTED_LANCE,
+	Piece.Kind.SHOGI_PROMOTED_KNIGHT, Piece.Kind.SHOGI_PROMOTED_SILVER,
+	Piece.Kind.SHOGI_HORSE, Piece.Kind.SHOGI_DRAGON,
 ]
 const KIND_LABELS: Dictionary = {
 	Piece.Kind.PAWN: "ポーン",
@@ -19,16 +25,33 @@ const KIND_LABELS: Dictionary = {
 	Piece.Kind.ROOK: "ルーク",
 	Piece.Kind.QUEEN: "クイーン",
 	Piece.Kind.KING: "キング",
+	Piece.Kind.SHOGI_PAWN: "歩",
+	Piece.Kind.SHOGI_LANCE: "香",
+	Piece.Kind.SHOGI_KNIGHT: "桂",
+	Piece.Kind.SHOGI_SILVER: "銀",
+	Piece.Kind.SHOGI_GOLD: "金",
+	Piece.Kind.SHOGI_BISHOP: "角",
+	Piece.Kind.SHOGI_ROOK: "飛",
+	Piece.Kind.SHOGI_KING: "王",
+	Piece.Kind.SHOGI_PROMOTED_PAWN: "と金",
+	Piece.Kind.SHOGI_PROMOTED_LANCE: "成香",
+	Piece.Kind.SHOGI_PROMOTED_KNIGHT: "成桂",
+	Piece.Kind.SHOGI_PROMOTED_SILVER: "成銀",
+	Piece.Kind.SHOGI_HORSE: "馬",
+	Piece.Kind.SHOGI_DRAGON: "龍",
 }
 
 var _catalog: SpeechCatalog
 var _store_dir: String = TeamStore.USER_TEAMS_DIR
 var _draft: TeamDef = TeamDef.new()
 var _selected_kind: int = Piece.Kind.PAWN
+var _game_id: String = SpeechCatalog.GAME_CHESS
 ## kind → OptionButton
 var _kind_options: Dictionary = {}
 ## kind → Button (行選択)
 var _kind_buttons: Dictionary = {}
+## kind → 行コンテナ
+var _kind_rows: Dictionary = {}
 
 var _root: Control
 var _panel: PanelContainer
@@ -189,6 +212,7 @@ func _init() -> void:
 func _build_kind_row(kind: int) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
+	_kind_rows[kind] = row
 
 	var select_btn := Button.new()
 	select_btn.toggle_mode = true
@@ -206,16 +230,22 @@ func _build_kind_row(kind: int) -> Control:
 	return row
 
 
-func open_with(catalog: SpeechCatalog, store_dir: String = TeamStore.USER_TEAMS_DIR, prefer_team_id: String = "") -> void:
+func open_with(
+	catalog: SpeechCatalog,
+	store_dir: String = TeamStore.USER_TEAMS_DIR,
+	prefer_team_id: String = "",
+	game_id: String = SpeechCatalog.GAME_CHESS,
+) -> void:
 	_catalog = catalog
 	_store_dir = store_dir if store_dir != "" else TeamStore.USER_TEAMS_DIR
+	_game_id = game_id if game_id == SpeechCatalog.GAME_SHOGI else SpeechCatalog.GAME_CHESS
 	_status_label.text = ""
 	_populate_load_options(prefer_team_id)
 	if prefer_team_id != "" and catalog != null and catalog.team_by_id(prefer_team_id) != null:
 		_load_team_id(prefer_team_id)
 	else:
 		_start_new_draft()
-	_select_kind(Piece.Kind.PAWN)
+	set_game_filter(_game_id)
 	visible = true
 
 
@@ -225,6 +255,24 @@ func draft() -> TeamDef:
 
 func selected_kind() -> int:
 	return _selected_kind
+
+
+func game_id() -> String:
+	return _game_id
+
+
+func set_game_filter(game_id: String) -> void:
+	## 表示対象だけを切り替え、_draft の非表示側 assignment は変更しない。
+	_game_id = game_id if game_id == SpeechCatalog.GAME_SHOGI else SpeechCatalog.GAME_CHESS
+	var visible_kinds := SpeechCatalog.kinds_for_game(_game_id)
+	for kind in KIND_ORDER:
+		var row := _kind_rows.get(kind) as Control
+		if row != null:
+			row.visible = visible_kinds.has(kind)
+	if not visible_kinds.has(_selected_kind):
+		_select_kind(int(visible_kinds[0]))
+	else:
+		_refresh_preview()
 
 
 func set_assignment_for_test(kind: int, character_id: String) -> void:
@@ -388,7 +436,7 @@ func _on_load_selected(index: int) -> void:
 func _on_new_pressed() -> void:
 	_load_option.select(0)
 	_start_new_draft()
-	_select_kind(Piece.Kind.PAWN)
+	_select_kind(int(SpeechCatalog.kinds_for_game(_game_id)[0]))
 
 
 func _on_save() -> void:

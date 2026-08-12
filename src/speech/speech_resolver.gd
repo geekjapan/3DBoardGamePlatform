@@ -13,6 +13,7 @@ const MOVER_PRIORITY: PackedStringArray = [
 	"check",
 	"captured",
 	"promoted",
+	"dropped",
 	"moved",
 ]
 
@@ -74,7 +75,7 @@ func is_important(event: MoveEvent) -> bool:
 
 
 func _should_speak_mover(event: MoveEvent, event_key: String) -> bool:
-	if event_key != "moved":
+	if event_key != "moved" and event_key != "dropped":
 		# 重要イベントは必ず発話を試みる(セリフ未定義なら結果として空になるだけ)。
 		return true
 	var p := clampf(move_probability, 0.0, 1.0)
@@ -96,6 +97,8 @@ func _mover_event_key(event: MoveEvent) -> String:
 		candidates.append("captured")
 	if event.was_promotion():
 		candidates.append("promoted")
+	if event.was_drop():
+		candidates.append("dropped")
 	if candidates.is_empty():
 		return "moved"
 	for key in MOVER_PRIORITY:
@@ -116,6 +119,9 @@ func _build_utterance(
 	if character == null:
 		return null
 	var pool := character.lines_for(event_key)
+	if pool.is_empty() and event_key == "dropped":
+		# 既存Character定義との互換を保ちつつ、イベント種別は dropped のまま扱う。
+		pool = character.lines_for("moved")
 	if pool.is_empty():
 		# イベントに対応するセリフが無い場合は黙る(クラッシュしない)。
 		return null

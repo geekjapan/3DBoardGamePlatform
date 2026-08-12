@@ -9,9 +9,30 @@ const DEFAULT_CHARACTERS_DIR := "res://data/characters"
 const DEFAULT_TEAMS_DIR := "res://data/teams"
 const DEFAULT_TEAM_PATH := "res://data/teams/default.json"
 
+const GAME_CHESS := "chess"
+const GAME_SHOGI := "shogi"
+
 const KIND_NAMES: PackedStringArray = [
-	"pawn", "knight", "bishop", "rook", "queen", "king"
+	"pawn", "knight", "bishop", "rook", "queen", "king",
+	"shogi_pawn", "shogi_lance", "shogi_knight", "shogi_silver",
+	"shogi_gold", "shogi_bishop", "shogi_rook", "shogi_king",
+	"shogi_promoted_pawn", "shogi_promoted_lance", "shogi_promoted_knight",
+	"shogi_promoted_silver", "shogi_horse", "shogi_dragon",
 ]
+
+const CHESS_KINDS: Array = [
+	Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
+	Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
+]
+const SHOGI_KINDS: Array = [
+	Piece.Kind.SHOGI_PAWN, Piece.Kind.SHOGI_LANCE, Piece.Kind.SHOGI_KNIGHT,
+	Piece.Kind.SHOGI_SILVER, Piece.Kind.SHOGI_GOLD, Piece.Kind.SHOGI_BISHOP,
+	Piece.Kind.SHOGI_ROOK, Piece.Kind.SHOGI_KING,
+	Piece.Kind.SHOGI_PROMOTED_PAWN, Piece.Kind.SHOGI_PROMOTED_LANCE,
+	Piece.Kind.SHOGI_PROMOTED_KNIGHT, Piece.Kind.SHOGI_PROMOTED_SILVER,
+	Piece.Kind.SHOGI_HORSE, Piece.Kind.SHOGI_DRAGON,
+]
+const ALL_KINDS: Array = CHESS_KINDS + SHOGI_KINDS
 
 ## id → CharacterDef
 var characters: Dictionary = {}
@@ -56,6 +77,11 @@ static func kind_name(kind: int) -> String:
 	if kind < 0 or kind >= KIND_NAMES.size():
 		return ""
 	return KIND_NAMES[kind]
+
+
+static func kinds_for_game(game_id: String) -> Array:
+	## 未知値は既存チェス表示へ安全に丸める。
+	return SHOGI_KINDS if game_id == GAME_SHOGI else CHESS_KINDS
 
 
 static func _is_directory(path: String) -> bool:
@@ -114,14 +140,11 @@ func character_id_for_side_kind(side: int, kind: int) -> String:
 	return team_for_side(side).character_id_for_kind(kind)
 
 
-func lineup_for_side(side: int) -> Dictionary:
+func lineup_for_side(side: int, game_id: String = GAME_CHESS) -> Dictionary:
 	## 駒種整数 → キャラクター ID。選んだチームどおりの並び(論理)。
 	var out: Dictionary = {}
 	var t := team_for_side(side)
-	for kind in [
-		Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
-		Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
-	]:
+	for kind in kinds_for_game(game_id):
 		var cid := t.character_id_for_kind(kind)
 		if cid != "":
 			out[kind] = cid

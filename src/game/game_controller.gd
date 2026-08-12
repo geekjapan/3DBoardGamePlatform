@@ -1,6 +1,8 @@
 class_name GameController
 extends Node
 
+const PromotionDialogScript := preload("res://src/ui/promotion_dialog.gd")
+
 ## GameSession と BoardView / GameHud / カメラ入力を結線する。
 ## 左クリック(ドラッグでない)でマスを指定。待ったは HUD ボタン。
 ## ドラッグ閾値は OrbitCamera.DRAG_THRESHOLD_PX と共有する。
@@ -18,6 +20,8 @@ var input_enabled: bool = true
 var _press_pos: Vector2 = Vector2.ZERO
 var _pressing: bool = false
 var _dragged: bool = false
+var _promotion_dialog: Variant = null
+var _orbit_input_before_promotion: bool = true
 
 
 func setup(
@@ -32,8 +36,17 @@ func setup(
 	hud = p_hud
 	orbit = p_orbit
 	ai_match = p_ai_match
+	ensure_active_board_fits()
 	if not hud.undo_pressed.is_connected(_on_undo):
 		hud.undo_pressed.connect(_on_undo)
+	if not hud.drop_pressed.is_connected(_on_drop_pressed):
+		hud.drop_pressed.connect(_on_drop_pressed)
+	if _promotion_dialog == null:
+		_promotion_dialog = PromotionDialogScript.new()
+		_promotion_dialog.name = "PromotionDialog"
+		add_child(_promotion_dialog)
+		_promotion_dialog.move_chosen.connect(_on_promotion_chosen)
+		_promotion_dialog.cancelled.connect(_on_promotion_cancelled)
 	if ai_match != null:
 		if not ai_match.board_updated.is_connected(_on_ai_board_updated):
 			ai_match.board_updated.connect(_on_ai_board_updated)
@@ -42,10 +55,18 @@ func setup(
 		ai_match.on_position_changed()
 
 
+func ensure_active_board_fits() -> void:
+	## 保存視点の復元時と view reset 後の両方で、現在の対局盤を基準に収める。
+	if orbit == null or session == null:
+		return
+	var active_board := session.board()
+	orbit.ensure_board_fits(Vector2i(active_board.width, active_board.height))
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if session == null:
 		return
-	if not input_enabled:
+	if not input_enabled or has_pending_promotion():
 		# ダイアログ表示中。押しっぱなしの状態を残さない。
 		_pressing = false
 		_dragged = false
@@ -84,7 +105,7 @@ func _handle_click(screen_pos: Vector2) -> void:
 			if board.piece_at(pos) != null:
 				occupied.append(pos)
 	var sq := BoardLayout.pick_square(
-		origin, direction, occupied, board_view.square_size, board.width, board.height
+		origin, direction, occupied, Vector2i(board.width, board.height), board_view.square_size
 	)
 	if sq == BoardLayout.INVALID_SQUARE:
 		# 盤外クリックは選択解除(盤内の空きと同様の UX)。
@@ -92,24 +113,104 @@ func _handle_click(screen_pos: Vector2) -> void:
 			session.deselect()
 			_refresh_view()
 		return
-	session.click(sq)
-	_refresh_view()
-	if ai_match != null:
-		ai_match.on_position_changed()
+	_handle_board_square(sq)
 	# 左クリックを handled にしない: OrbitCamera が release を受け取る必要がある。
 
 
+func _handle_board_square(sq: Vector2i) -> void:
+	## raycast と分離した決定的な盤入力境界。任意成りだけ Controller が保留する。
+	if session == null or has_pending_promotion():
+		return
+	var before := session.last_move_event()
+	if session.is_selected():
+		var candidates := session.legal_moves_to(sq)
+		if candidates.size() > 1:
+			_open_promotion(candidates)
+			_refresh_view()
+			return
+		if candidates.size() == 1:
+			session.try_move_to(sq)
+			_after_board_interaction(before)
+			return
+	session.click(sq)
+	_after_board_interaction(before)
+
+
+func select_drop(kind: int) -> bool:
+	## HUD の同じ持ち駒ボタンは取消、別Kindは排他的な選択切替。
+	if session == null or has_pending_promotion():
+		return false
+	if session.selected_drop_kind() == kind:
+		session.deselect()
+		_refresh_view()
+		return true
+	var selected := session.select_drop(kind)
+	_refresh_view()
+	return selected
+
+
+func promotion_dialog() -> Object:
+	return _promotion_dialog
+
+
+func has_pending_promotion() -> bool:
+	return _promotion_dialog != null and _promotion_dialog.visible
+
+
 func _on_undo() -> void:
+	# 待った不能(履歴 0/1 プライ)は retry を含め完全 no-op にする。
+	if session == null or not session.can_undo():
+		return
 	if ai_match != null:
 		ai_match.cancel_search()
-	if session != null and session.undo():
+	if session.undo():
 		_refresh_view()
 		if ai_match != null:
-			ai_match.on_position_changed()
+			ai_match.on_position_changed(true)
 
 
 func _on_ai_board_updated() -> void:
 	_refresh_view()
+
+
+func _on_drop_pressed(side: int, kind: int) -> void:
+	if session == null or side != session.side_to_move():
+		return
+	select_drop(kind)
+
+
+func _open_promotion(candidates: Array) -> void:
+	if _promotion_dialog == null or not _promotion_dialog.open_with(candidates):
+		return
+	if orbit != null:
+		_orbit_input_before_promotion = orbit.input_enabled
+		orbit.input_enabled = false
+	if ai_match != null:
+		ai_match.cancel_search()
+
+
+func _on_promotion_chosen(move: Move) -> void:
+	_restore_after_promotion()
+	var before := session.last_move_event()
+	session.apply_move(move)
+	_after_board_interaction(before)
+
+
+func _on_promotion_cancelled() -> void:
+	## 盤・履歴・last_move_event・選択は変更しない。
+	_restore_after_promotion()
+	_refresh_view()
+
+
+func _restore_after_promotion() -> void:
+	if orbit != null:
+		orbit.input_enabled = _orbit_input_before_promotion
+
+
+func _after_board_interaction(before: MoveEvent) -> void:
+	_refresh_view()
+	if ai_match != null and session.last_move_event() != before:
+		ai_match.on_position_changed()
 
 
 func _refresh_view() -> void:
@@ -129,5 +230,8 @@ func _refresh_view() -> void:
 			session.side_to_move(),
 			session.in_check() and not session.is_over(),
 			session.result_text(),
-			session.can_undo()
+			session.can_undo(),
+			session.board(),
+			session.selected_drop_kind(),
+			session.legal_drop_kinds()
 		)

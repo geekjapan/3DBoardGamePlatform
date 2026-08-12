@@ -8,6 +8,9 @@ extends "res://tests/case.gd"
 ##
 ## 入力の感触(クリック vs ドラッグ)と HUD の見やすさは手動確認。
 
+const CHESS_BOARD_SIZE := Vector2i(8, 8)
+const SHOGI_BOARD_SIZE := Vector2i(9, 9)
+
 
 func test_selects_only_side_to_move_piece() -> void:
 	var session := GameSession.start()
@@ -186,34 +189,38 @@ func test_board_view_highlights_and_sync() -> void:
 
 
 func test_screen_ray_to_square_hits_board_plane() -> void:
-	## カメラなしでも plane 交差の数学を固定入力で検証する。
-	# e4 マス中心の真上から真下へ。
-	var e4_world := BoardLayout.square_to_world(Vector2i(4, 3))
-	var origin := Vector3(e4_world.x, 10.0, e4_world.z)
-	var direction := Vector3(0.0, -1.0, 0.0)
-	var sq := BoardLayout.ray_to_square(origin, direction)
-	check_eq(sq, Vector2i(4, 3), "e4 真上から真下は e4")
-	var miss := BoardLayout.ray_to_square(Vector3(0, 10, 0), Vector3(0, 1, 0))
-	check_eq(miss, BoardLayout.INVALID_SQUARE, "上向きレイは盤に当たらない")
-	var off_board := BoardLayout.ray_to_square(Vector3(20, 10, 20), Vector3(0, -1, 0))
-	check_eq(off_board, BoardLayout.INVALID_SQUARE, "盤外ヒットは無効")
+	## カメラなしでも plane 交差の数学を 8x8 / 9x9 の固定入力で検証する。
+	for board_size in [CHESS_BOARD_SIZE, SHOGI_BOARD_SIZE]:
+		var pos := Vector2i(4, 3)
+		var world := BoardLayout.square_to_world(pos, board_size)
+		var origin := Vector3(world.x, 10.0, world.z)
+		var direction := Vector3(0.0, -1.0, 0.0)
+		var sq := BoardLayout.ray_to_square(origin, direction, board_size)
+		check_eq(sq, pos, "%s 真上から真下は %s" % [board_size, pos])
+		var miss := BoardLayout.ray_to_square(Vector3(0, 10, 0), Vector3(0, 1, 0), board_size)
+		check_eq(miss, BoardLayout.INVALID_SQUARE, "%s 上向きレイは盤に当たらない" % board_size)
+		var off_board := BoardLayout.ray_to_square(
+			Vector3(20, 10, 20), Vector3(0, -1, 0), board_size
+		)
+		check_eq(off_board, BoardLayout.INVALID_SQUARE, "%s 盤外ヒットは無効" % board_size)
 
 
 func test_pick_square_prefers_piece_sphere_over_plane() -> void:
 	## 平面交点が隣マスでも、駒球に当たれば駒マスを返す。
-	var e2 := Vector2i(4, 1)
-	var e2_world := BoardLayout.square_to_world(e2)
-	# 駒の少し手前上から駒中心を狙う。
-	var origin := Vector3(e2_world.x, 1.2, e2_world.z + 2.5)
-	var target := e2_world + Vector3(0.0, 0.35, 0.0)
-	var direction := (target - origin).normalized()
-	var picked := BoardLayout.pick_square(origin, direction, [e2])
-	check_eq(picked, e2, "駒球優先で e2")
-	# 駒が無いときは平面フォールバック
-	var empty_board_pick := BoardLayout.pick_square(
-		Vector3(e2_world.x, 10.0, e2_world.z), Vector3(0, -1, 0), []
-	)
-	check_eq(empty_board_pick, e2, "真上平面は e2")
+	for board_size in [CHESS_BOARD_SIZE, SHOGI_BOARD_SIZE]:
+		var pos := Vector2i(4, 1)
+		var world := BoardLayout.square_to_world(pos, board_size)
+		# 駒の少し手前上から駒中心を狙う。
+		var origin := Vector3(world.x, 1.2, world.z + 2.5)
+		var target := world + Vector3(0.0, 0.35, 0.0)
+		var direction := (target - origin).normalized()
+		var picked := BoardLayout.pick_square(origin, direction, [pos], board_size)
+		check_eq(picked, pos, "%s 駒球優先で %s" % [board_size, pos])
+		# 駒が無いときは平面フォールバック。
+		var empty_board_pick := BoardLayout.pick_square(
+			Vector3(world.x, 10.0, world.z), Vector3(0, -1, 0), [], board_size
+		)
+		check_eq(empty_board_pick, pos, "%s 真上平面は %s" % [board_size, pos])
 
 
 func test_orbit_and_controller_share_drag_threshold() -> void:

@@ -61,7 +61,7 @@ func test_lineup_matches_selected_team_on_board_pieces() -> void:
 	for y in range(board.height):
 		for x in range(board.width):
 			var pos := Vector2i(x, y)
-			var piece := board.piece_at(pos)
+			var piece: Piece = board.piece_at(pos)
 			if piece == null:
 				continue
 			var expected := catalog.character_id_for_side_kind(piece.side, piece.kind)

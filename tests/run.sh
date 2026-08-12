@@ -10,10 +10,8 @@ cd "$(dirname "$0")/.."
 
 GODOT_BIN="${GODOT:-godot}"
 
-# class_name はグローバルクラスキャッシュが無いとヘッドレスで解決できない。
-if [ ! -f .godot/global_script_class_cache.cfg ]; then
-	"$GODOT_BIN" --headless --path . --import >/dev/null 2>&1 || true
-fi
+# class_name はグローバルクラスキャッシュが古いとヘッドレスで解決できない。
+"$GODOT_BIN" --headless --path . --import >/dev/null 2>&1 || true
 
 log=$(mktemp "${TMPDIR:-/tmp}/godot-tests.XXXXXX")
 trap 'rm -f "$log"' EXIT

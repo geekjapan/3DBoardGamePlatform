@@ -7,6 +7,8 @@ extends Node3D
 ## 左ドラッグは閾値を超えてから回転開始し、クリック選択(#5)と共存する。
 
 const DRAG_THRESHOLD_PX := 6.0
+const BASE_FIT_BOARD_DIMENSION := 8
+const EXTRA_DISTANCE_PER_SQUARE := 2.0
 
 @export var distance: float = 7.5
 @export var min_distance: float = 3.0
@@ -66,6 +68,14 @@ func set_pan(offset: Vector3) -> void:
 
 func reset_pan() -> void:
 	set_pan(Vector3.ZERO)
+
+
+func ensure_board_fits(board_size: Vector2i) -> void:
+	## 8x8 の既存構図は不変。大きい盤だけ、初期操作で端が欠けない最小距離へ引く。
+	var extra := maxi(board_size.x, board_size.y) - BASE_FIT_BOARD_DIMENSION
+	if extra <= 0:
+		return
+	set_distance(maxf(distance, 7.5 + float(extra) * EXTRA_DISTANCE_PER_SQUARE))
 
 
 func pan_by_screen_delta(delta: Vector2) -> void:

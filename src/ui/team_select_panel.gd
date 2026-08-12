@@ -7,10 +7,12 @@ extends CanvasLayer
 
 signal confirmed(settings: TeamSettings)
 signal edit_requested
+signal game_selection_requested
 signal closed
 
 var _catalog: SpeechCatalog
 var _settings: TeamSettings
+var _game_id: String = SpeechCatalog.GAME_CHESS
 var _root: Control
 var _panel: PanelContainer
 var _white_option: OptionButton
@@ -75,6 +77,12 @@ func _init() -> void:
 	btn_row.alignment = BoxContainer.ALIGNMENT_END
 	vbox.add_child(btn_row)
 
+	var back_btn := Button.new()
+	back_btn.text = "ゲーム選択へ戻る"
+	back_btn.custom_minimum_size = Vector2(150, 40)
+	back_btn.pressed.connect(_on_game_selection_requested)
+	btn_row.add_child(back_btn)
+
 	var edit_btn := Button.new()
 	edit_btn.text = "編成を編集"
 	edit_btn.custom_minimum_size = Vector2(140, 40)
@@ -121,11 +129,22 @@ func _build_side_block(title_text: String, is_white: bool) -> Control:
 	return box
 
 
-func open_with(catalog: SpeechCatalog, settings: TeamSettings) -> void:
+func open_with(
+	catalog: SpeechCatalog,
+	settings: TeamSettings,
+	game_id: String = SpeechCatalog.GAME_CHESS,
+) -> void:
 	_catalog = catalog
 	_settings = settings
+	_game_id = game_id if game_id == SpeechCatalog.GAME_SHOGI else SpeechCatalog.GAME_CHESS
+	var game_name := "将棋" if _game_id == SpeechCatalog.GAME_SHOGI else "チェス"
+	_hint_label.text = "%s用の先手・後手チームを選びます。同じチーム同士でも対局できます。" % game_name
 	refresh_options()
 	visible = true
+
+
+func game_id() -> String:
+	return _game_id
 
 
 func refresh_options() -> void:
@@ -194,10 +213,7 @@ func _lineup_text(team_id: String) -> String:
 	if t == null:
 		return "割当なし"
 	var parts: PackedStringArray = []
-	for kind in [
-		Piece.Kind.PAWN, Piece.Kind.KNIGHT, Piece.Kind.BISHOP,
-		Piece.Kind.ROOK, Piece.Kind.QUEEN, Piece.Kind.KING,
-	]:
+	for kind in SpeechCatalog.kinds_for_game(_game_id):
 		var cid := t.character_id_for_kind(kind)
 		var cname := cid
 		var ch := _catalog.character(cid)
@@ -209,6 +225,10 @@ func _lineup_text(team_id: String) -> String:
 
 func _on_edit_pressed() -> void:
 	edit_requested.emit()
+
+
+func _on_game_selection_requested() -> void:
+	game_selection_requested.emit()
 
 
 func _on_confirm() -> void:

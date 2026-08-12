@@ -23,7 +23,7 @@ var _highlights_root: Node3D
 var _piece_nodes: Dictionary = {}
 ## Vector2i -> MeshInstance3D (ハイライト)
 var _highlight_nodes: Dictionary = {}
-var _board: Board
+var _board: Object
 ## 取られ演出中で盤マップからは外れているノード。
 var _capturing_nodes: Array = []
 ## 次の sync で演出するか。build_from は false、apply_board は true。
@@ -49,7 +49,7 @@ func _init() -> void:
 var visual_factory: Callable = Callable()
 
 
-func board() -> Board:
+func board() -> Object:
 	return _board
 
 
@@ -116,7 +116,7 @@ func finish_animations() -> void:
 	_force_finish_captures()
 
 
-func build_from(board: Board) -> void:
+func build_from(board: Object) -> void:
 	## 盤を与えてタイルと駒を構築する。以降の配置はこの board に従う。
 	_force_finish_captures()
 	_board = board
@@ -126,7 +126,7 @@ func build_from(board: Board) -> void:
 	clear_highlights()
 
 
-func apply_board(board: Board) -> void:
+func apply_board(board: Object) -> void:
 	## 対局中の盤更新。タイルは作り直さず駒だけ同期する。移動・取りを演出する。
 	## 演出中の再呼び出しでも中断して新しい盤へ安全に合わせる。
 	_interrupt_for_resync()
@@ -135,7 +135,7 @@ func apply_board(board: Board) -> void:
 	sync_pieces()
 
 
-func apply_move_event(board: Board, _event: MoveEvent) -> void:
+func apply_move_event(board: Object, _event: MoveEvent) -> void:
 	## MoveEvent を観測して演出する入口。現状は apply_board と同じ経路
 	## (同一性マッチで移動・取りを判定)。将来イベント固有の順序付け用に残す。
 	apply_board(board)
@@ -154,7 +154,7 @@ func sync_pieces() -> void:
 	for y in range(_board.height):
 		for x in range(_board.width):
 			var pos := Vector2i(x, y)
-			var piece := _board.piece_at(pos)
+			var piece: Piece = _board.piece_at(pos) as Piece
 			if piece != null:
 				desired[pos] = piece
 
@@ -193,12 +193,15 @@ func sync_pieces() -> void:
 		next_map[pos] = node
 		unmatched.erase(pos)
 
-	# Pass 3: 成り — 同 side のポーンノードを非ポーンへ昇格させる。
+	# Pass 3: 成り — 同 side の対応する基本駒ノードを成駒へ昇格させる。
 	for pos in unmatched.duplicate():
 		var piece: Piece = desired[pos]
-		if piece.kind == Piece.Kind.PAWN:
+		var base_kind := Piece.base_kind_for_promoted(piece.kind)
+		if piece.kind in [Piece.Kind.KNIGHT, Piece.Kind.BISHOP, Piece.Kind.ROOK, Piece.Kind.QUEEN]:
+			base_kind = Piece.Kind.PAWN
+		if base_kind < 0:
 			continue
-		var idx := _find_free_node(free_nodes, piece.side, Piece.Kind.PAWN, true)
+		var idx := _find_free_node(free_nodes, piece.side, base_kind, true)
 		if idx < 0:
 			continue
 		var node: PieceNode = free_nodes[idx]
@@ -331,7 +334,7 @@ func _place_node(
 	var kind_changed := node.piece_kind != piece.kind
 	node.piece_kind = piece.kind
 	node.name = "Piece_%d_%d" % [pos.x, pos.y]
-	var world := BoardLayout.square_to_world(pos, square_size)
+	var world := BoardLayout.square_to_world(pos, _board_size(), square_size)
 	if appearance_changed or kind_changed:
 		_apply_visual(node, piece)
 	if animate:
@@ -352,7 +355,7 @@ func _add_highlight(pos: Vector2i, color: Color) -> void:
 	mat.roughness = 1.0
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh_inst.material_override = mat
-	var world := BoardLayout.square_to_world(pos, square_size)
+	var world := BoardLayout.square_to_world(pos, _board_size(), square_size)
 	mesh_inst.position = Vector3(world.x, HIGHLIGHT_Y, world.z)
 	_highlights_root.add_child(mesh_inst)
 	_highlight_nodes[pos] = mesh_inst
@@ -364,8 +367,9 @@ func _rebuild_tiles() -> void:
 		_tiles_root.remove_child(child)
 		child.free()
 
-	var width := _board.width if _board != null else 8
-	var height := _board.height if _board != null else 8
+	var width: int = _board.width
+	var height: int = _board.height
+	var board_size := Vector2i(width, height)
 	for y in range(height):
 		for x in range(width):
 			var pos := Vector2i(x, y)
@@ -378,6 +382,11 @@ func _rebuild_tiles() -> void:
 			mat.albedo_color = LIGHT_COLOR if BoardLayout.is_light_square(pos) else DARK_COLOR
 			mat.roughness = 0.85
 			tile.material_override = mat
-			var world := BoardLayout.square_to_world(pos, square_size)
+			var world := BoardLayout.square_to_world(pos, board_size, square_size)
 			tile.position = Vector3(world.x, -TILE_HEIGHT * 0.5, world.z)
 			_tiles_root.add_child(tile)
+
+
+func _board_size() -> Vector2i:
+	assert(_board != null, "build_from を先に呼ぶ")
+	return Vector2i(_board.width, _board.height)
