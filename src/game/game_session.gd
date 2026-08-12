@@ -31,6 +31,8 @@ var _selected_drop_kind: int = -1
 var _legal_from_selected: Array = []
 ## 直近の成功した着手。失敗や未着手では null。
 var _last_move_event: MoveEvent = null
+## 盤面から導出できない外部終局(現在は投了)だけを保持する。
+var _external_result: GameResult = null
 
 
 static func start() -> GameSession:
@@ -92,6 +94,8 @@ func legal_moves_to(to: Vector2i) -> Array:
 func legal_drop_kinds() -> Array:
 	## 現在手番で1マス以上へ打てる持ち駒Kind(重複なし)。
 	var out: Array = []
+	if result() != null:
+		return out
 	for candidate in _board.legal_moves():
 		var move := candidate as Move
 		if move.is_drop and not out.has(move.drop_kind):
@@ -111,21 +115,61 @@ func is_stalemate() -> bool:
 	return _board.is_stalemate()
 
 
+func result() -> GameResult:
+	## 外部結果を優先し、無ければ現在の盤面から終局を導出する。
+	if _external_result != null:
+		return _external_result
+	if _board.is_checkmate():
+		var loser: int = _board.side_to_move
+		return GameResult.new(
+			GameResult.Reason.CHECKMATE,
+			Piece.opposite(loser),
+			loser,
+		)
+	if _board.is_stalemate():
+		return GameResult.new(GameResult.Reason.STALEMATE)
+	return null
+
+
 func is_over() -> bool:
-	return is_checkmate() or is_stalemate()
+	return result() != null
 
 
 func result_text() -> String:
-	if is_checkmate():
-		var is_shogi := _board is ShogiBoard
-		var winner := "後手" if side_to_move() == Piece.Side.WHITE else "先手"
-		if not is_shogi:
-			winner = "黒" if side_to_move() == Piece.Side.WHITE else "白"
-		var reason := "詰み" if is_shogi else "チェックメイト"
-		return "%sの勝ち (%s)" % [winner, reason]
-	if is_stalemate():
-		return "引き分け (ステイルメイト)"
+	var current := result()
+	if current == null:
+		return ""
+	match current.reason:
+		GameResult.Reason.CHECKMATE:
+			var is_shogi := _board is ShogiBoard
+			var winner := "後手" if current.winner_side == Piece.Side.BLACK else "先手"
+			if not is_shogi:
+				winner = "黒" if current.winner_side == Piece.Side.BLACK else "白"
+			var reason := "詰み" if is_shogi else "チェックメイト"
+			return "%sの勝ち (%s)" % [winner, reason]
+		GameResult.Reason.STALEMATE:
+			return "引き分け (ステイルメイト)"
+		GameResult.Reason.RESIGN:
+			var resign_winner := "後手" if current.winner_side == Piece.Side.BLACK else "先手"
+			if not (_board is ShogiBoard):
+				resign_winner = "黒" if current.winner_side == Piece.Side.BLACK else "白"
+			return "%sの勝ち (投了)" % resign_winner
 	return ""
+
+
+func finish_by_resignation(resigning_side: int) -> bool:
+	## 投了は現在手番の側だけが宣言でき、盤・履歴・手番を変更しない。
+	if resigning_side != Piece.Side.WHITE and resigning_side != Piece.Side.BLACK:
+		return false
+	if resigning_side != side_to_move() or result() != null:
+		return false
+	_external_result = GameResult.new(
+		GameResult.Reason.RESIGN,
+		Piece.opposite(resigning_side),
+		resigning_side,
+	)
+	deselect()
+	return true
 
 
 func last_move_event() -> MoveEvent:
@@ -219,6 +263,7 @@ func undo() -> bool:
 	_board = _history.pop_back() as Object
 	deselect()
 	_last_move_event = null
+	_external_result = null
 	return true
 
 

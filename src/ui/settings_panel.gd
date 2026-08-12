@@ -17,10 +17,13 @@ signal view_save_requested
 signal view_reset_requested
 
 var _settings: AiSettings
+var _profile: AiSettings.Profile
+var _active_game: String = "chess"
 var _speech: SpeechSettings
 var _root: Control
 var _panel: PanelContainer
 var _ai_check: CheckBox
+var _human_side_option: OptionButton
 var _strength_option: OptionButton
 var _path_edit: LineEdit
 var _status_label: Label
@@ -91,8 +94,16 @@ func _init() -> void:
 	vbox.add_child(_status_label)
 
 	_ai_check = CheckBox.new()
-	_ai_check.text = "AI 対戦する (人が白・AI が黒)"
 	vbox.add_child(_ai_check)
+
+	var human_side_row := HBoxContainer.new()
+	human_side_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(human_side_row)
+	var human_side_label := Label.new()
+	human_side_label.text = "人の側"
+	human_side_row.add_child(human_side_label)
+	_human_side_option = OptionButton.new()
+	human_side_row.add_child(_human_side_option)
 
 	var strength_row := HBoxContainer.new()
 	strength_row.add_theme_constant_override("separation", 8)
@@ -220,19 +231,51 @@ func _init() -> void:
 	btn_row.add_child(apply_btn)
 
 
-func open_with(settings: AiSettings, speech: SpeechSettings = null) -> void:
+## 既存 caller の (settings, speech) と、ゲーム文脈を渡す
+## (settings, speech, active_game) の両方を受け付ける。
+## active_game だけを第2引数に渡す形も open_for_game と同じ意味になる。
+func open_with(settings: AiSettings, speech_or_game: Variant = null, active_game: String = "") -> void:
 	_settings = settings
-	_speech = speech if speech != null else SpeechSettings.load_or_default()
-	_path_edit.text = settings.engine_path
-	_select_strength(settings.strength)
-	_settings.refresh_engine_status()
-	_ai_check.button_pressed = settings.ai_enabled and settings.engine_available
+	_speech = null
+	if speech_or_game is String:
+		if active_game == "":
+			active_game = str(speech_or_game)
+	else:
+		_speech = speech_or_game as SpeechSettings
+	_active_game = _normalize_game_id(active_game)
+	_profile = settings.profile_for_game(_active_game)
+	_configure_side_options()
+	if _speech == null:
+		_speech = SpeechSettings.load_or_default()
+	_path_edit.text = _profile.engine_path
+	_select_strength(_profile.strength)
+	_select_human_side(_profile.human_side)
+	_profile.status_checked = false
+	_settings.refresh_engine_status(_profile.protocol)
+	# runtime availability は checkbox の保存値を上書きしない。未利用時は操作だけ止める。
+	_ai_check.button_pressed = _profile.enabled
 	_select_speech_mode(_speech.mode)
 	_move_prob_slider.value = clampf(_speech.move_probability, 0.0, 1.0)
 	_on_prob_changed(_move_prob_slider.value)
 	_refresh_enabled_state()
-	_protocol_label.text = "プロトコル: %s (将棋 USI は後から追加予定)" % settings.protocol
+	_protocol_label.text = "プロトコル: %s" % _profile.protocol.to_upper()
 	visible = true
+
+
+func open_for_game(
+	settings: AiSettings,
+	active_game: String,
+	speech: SpeechSettings = null,
+) -> void:
+	open_with(settings, speech, active_game)
+
+
+func active_game() -> String:
+	return _active_game
+
+
+func active_profile() -> AiSettings.Profile:
+	return _profile
 
 
 func _on_save_view() -> void:
@@ -258,6 +301,25 @@ func _select_strength(value: int) -> void:
 	_strength_option.select(1)
 
 
+func _configure_side_options() -> void:
+	if _human_side_option == null:
+		return
+	_human_side_option.clear()
+	var white_label := "先手" if _active_game == "shogi" else "白"
+	var black_label := "後手" if _active_game == "shogi" else "黒"
+	_human_side_option.add_item(white_label, Piece.Side.WHITE)
+	_human_side_option.add_item(black_label, Piece.Side.BLACK)
+	_ai_check.text = "AI 対戦する"
+
+
+func _select_human_side(value: int) -> void:
+	for i in range(_human_side_option.item_count):
+		if _human_side_option.get_item_id(i) == value:
+			_human_side_option.select(i)
+			return
+	_human_side_option.select(0)
+
+
 func _select_speech_mode(value: int) -> void:
 	for i in range(_speech_mode_option.item_count):
 		if _speech_mode_option.get_item_id(i) == value:
@@ -272,35 +334,35 @@ func _on_prob_changed(value: float) -> void:
 
 
 func _refresh_enabled_state() -> void:
-	var avail := _settings != null and _settings.engine_available
+	var avail := _profile != null and _profile.engine_available
 	_ai_check.disabled = not avail
 	if not avail:
-		_ai_check.button_pressed = false
-		_status_label.text = _settings.engine_message if _settings else "エンジン未設定"
+		_status_label.text = _profile.engine_message if _profile else "エンジン未設定"
 		_status_label.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
 	else:
-		_status_label.text = _settings.engine_message
+		_status_label.text = _profile.engine_message
 		_status_label.add_theme_color_override("font_color", Color(0.45, 0.85, 0.5))
 	_strength_option.disabled = false
 	_path_edit.editable = true
 
 
 func _on_probe() -> void:
-	if _settings == null:
+	if _settings == null or _profile == null:
 		return
-	_settings.engine_path = _path_edit.text.strip_edges()
-	_settings.refresh_engine_status()
-	_ai_check.button_pressed = _ai_check.button_pressed and _settings.engine_available
+	_profile.engine_path = _path_edit.text.strip_edges()
+	_settings.refresh_engine_status(_profile.protocol)
 	_refresh_enabled_state()
 
 
 func _on_apply() -> void:
-	if _settings == null:
+	if _settings == null or _profile == null:
 		return
-	_settings.engine_path = _path_edit.text.strip_edges()
-	_settings.strength = _strength_option.get_selected_id()
-	_settings.refresh_engine_status()
-	_settings.ai_enabled = _ai_check.button_pressed and _settings.engine_available
+	_profile.engine_path = _path_edit.text.strip_edges()
+	_profile.strength = _strength_option.get_selected_id()
+	_profile.human_side = _human_side_option.get_selected_id()
+	# enabled は永続設定。probe の結果は runtime status として別に保持する。
+	_profile.enabled = _ai_check.button_pressed
+	_settings.refresh_engine_status(_profile.protocol)
 	_settings.save_to_disk()
 	_refresh_enabled_state()
 	settings_applied.emit(_settings)
@@ -319,3 +381,7 @@ func _on_apply() -> void:
 func _on_close() -> void:
 	visible = false
 	closed.emit()
+
+
+func _normalize_game_id(game_id: String) -> String:
+	return "shogi" if game_id.to_lower() == "shogi" else "chess"

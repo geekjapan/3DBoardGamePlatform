@@ -39,8 +39,7 @@ func _ready() -> void:
 	_setup_light()
 
 	_settings = AiSettings.load_or_default()
-	_settings.refresh_engine_status()
-	# 起動時にエンジン無しなら AI はオフのまま 2 人対戦。
+	# game 確定後、その game に対応する profile だけを probe する。
 
 	_speech_settings = SpeechSettings.load_or_default()
 
@@ -159,14 +158,12 @@ func _start_match() -> bool:
 	_hud.name = "GameHud"
 	add_child(_hud)
 
-	# T27 の将棋は human-vs-human。既存 UCI は chess のときだけ非回帰で結線する。
-	if active_game == SpeechCatalog.GAME_CHESS:
-		_ai_match = AiMatch.new()
-		_ai_match.name = "AiMatch"
-		add_child(_ai_match)
-		_ai_match.setup(_session, _settings)
-	else:
-		_ai_match = null
+	var ai_protocol := _protocol_for_game(active_game)
+	_settings.refresh_engine_status(ai_protocol)
+	_ai_match = AiMatch.new()
+	_ai_match.name = "AiMatch"
+	add_child(_ai_match)
+	_ai_match.setup(_session, _settings, ai_protocol)
 
 	_controller = GameController.new()
 	_controller.name = "GameController"
@@ -176,9 +173,15 @@ func _start_match() -> bool:
 	_ai_overlay = AiOverlay.new()
 	add_child(_ai_overlay)
 	_ai_overlay.settings_pressed.connect(_on_open_settings)
-	if _ai_match != null:
-		_ai_match.thinking_changed.connect(_ai_overlay.set_thinking)
-		_ai_match.status_message.connect(_ai_overlay.set_status)
+	_ai_overlay.retry_pressed.connect(_on_ai_retry)
+	_ai_overlay.disable_for_match_pressed.connect(_on_ai_disable_for_match)
+	_ai_match.thinking_changed.connect(_ai_overlay.set_thinking)
+	_ai_match.status_message.connect(_ai_overlay.set_status)
+	_ai_match.failure_changed.connect(_on_ai_failure)
+	_ai_match.failure_cleared.connect(_ai_overlay.clear_failure)
+	_ai_match.ai_disabled_for_match.connect(_on_ai_disabled_for_match)
+	# Controller.setup が初手 AI の探索を先に開始するため、接続前の thinking 状態を同期する。
+	_ai_overlay.set_thinking(_ai_match.is_thinking())
 	_refresh_ai_badge()
 	_refresh_team_badge()
 
@@ -243,7 +246,7 @@ func _show_game_lock_notice() -> void:
 
 
 func _on_open_settings() -> void:
-	_settings_panel.open_with(_settings, _speech_settings)
+	_settings_panel.open_with(_settings, _speech_settings, active_game)
 
 
 func _character_visual(side: int, kind: int) -> Node3D:
@@ -293,7 +296,35 @@ func _on_settings_applied(settings: AiSettings) -> void:
 	_settings = settings
 	if _ai_match != null:
 		_ai_match.rebind_settings(_settings)
-	_refresh_ai_badge()
+	if _ai_match != null and _ai_match.is_failed():
+		_on_ai_failure(_ai_match.failure_details())
+	else:
+		_refresh_ai_badge()
+
+
+func _on_ai_retry() -> void:
+	if _ai_match != null:
+		_ai_match.retry_failed_search()
+		_ai_overlay.set_retrying(_ai_match.is_thinking())
+
+
+func _on_ai_disable_for_match() -> void:
+	if _ai_match != null:
+		_ai_match.disable_ai_for_match()
+
+
+func _on_ai_failure(details: Dictionary) -> void:
+	_ai_overlay.set_failed(
+		str(details.get("classification", "PROTOCOL_ERROR")),
+		str(details.get("message", "外部エンジンが探索を完了できませんでした")),
+		not _ai_match.is_thinking()
+	)
+
+
+func _on_ai_disabled_for_match() -> void:
+	_ai_overlay.clear_failure()
+	_ai_overlay.set_ai_mode(false, "", true)
+	_ai_overlay.set_status("この対局だけ AI を解除しました（保存設定は変更していません）")
 
 
 func _on_speech_settings_applied(settings: SpeechSettings) -> void:
@@ -307,17 +338,14 @@ func _on_speech_settings_applied(settings: SpeechSettings) -> void:
 func _refresh_ai_badge() -> void:
 	if _ai_overlay == null or _settings == null:
 		return
-	if active_game == SpeechCatalog.GAME_SHOGI:
-		_ai_overlay.set_ai_mode(false, "", false)
-		_ai_overlay.set_status("将棋は人間対人間で対局します")
-		return
+	var profile: Variant = _settings.profile(_protocol_for_game(active_game))
 	_ai_overlay.set_ai_mode(
-		_settings.ai_enabled,
-		_settings.strength_label(),
-		_settings.engine_available
+		bool(profile.enabled),
+		profile.strength_label(),
+		bool(profile.engine_available)
 	)
-	if not _settings.engine_available:
-		_ai_overlay.set_status(_settings.engine_message)
+	if not profile.engine_available:
+		_ai_overlay.set_status(profile.engine_message)
 
 
 func _refresh_team_badge() -> void:
@@ -332,14 +360,18 @@ func _refresh_team_badge() -> void:
 	var white_label := "白"
 	var black_label := "黒"
 	if active_game == SpeechCatalog.GAME_SHOGI:
-		base = "将棋は人間対人間 / "
 		white_label = "先手"
 		black_label = "後手"
-	elif _settings != null and not _settings.engine_available:
-		base = _settings.engine_message + " / "
+	var profile: Variant = _settings.profile(_protocol_for_game(active_game)) if _settings != null else null
+	if profile != null and not profile.engine_available:
+		base = profile.engine_message + " / "
 	_ai_overlay.set_status("%sチーム %s:%s %s:%s" % [
 		base, white_label, w_name, black_label, b_name,
 	])
+
+
+func _protocol_for_game(game_id: String) -> String:
+	return "usi" if game_id == SpeechCatalog.GAME_SHOGI else "uci"
 
 
 func _setup_environment() -> void:

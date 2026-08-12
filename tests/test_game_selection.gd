@@ -165,7 +165,7 @@ func test_main_chess_manual_start_is_8x8_fixed_and_rejects_double_start() -> voi
 	main.free()
 
 
-func test_main_shogi_manual_start_is_9x9_with_hands_and_human_vs_human() -> void:
+func test_main_shogi_start_is_9x9_with_hands_and_usi_fallback() -> void:
 	var main := _prepared_main(SpeechCatalog.GAME_SHOGI)
 	check(main._start_match(), "shogi start 成功")
 	var session: GameSession = main.current_session()
@@ -174,7 +174,10 @@ func test_main_shogi_manual_start_is_9x9_with_hands_and_human_vs_human() -> void
 	check_eq(Vector2i(board.width, board.height), Vector2i(9, 9), "9x9")
 	check(board.hands.has(Piece.Side.WHITE) and board.hands.has(Piece.Side.BLACK), "両陣営の持ち駒")
 	check(main._hud.hands_visible(), "HUD 持ち駒表示")
-	check(main._ai_match == null, "T27 shogi は human-vs-human")
+	check(main._ai_match != null, "T28 shogi は USI AiMatch を結線")
+	check_eq(main._ai_match.protocol, "usi", "将棋は USI profile 固定")
+	check(not main._ai_match.is_ai_enabled(), "USI 未検出時は AI 選択不能")
+	check(not main._ai_match.blocks_human_input(), "USI 未検出でも2人対戦の入力可")
 	_assert_shared_session(main, session)
 	var history_board := session.board()
 	check(not main._start_match(), "shogi 二重 start 拒否")

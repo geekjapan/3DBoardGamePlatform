@@ -152,12 +152,15 @@ func has_pending_promotion() -> bool:
 
 
 func _on_undo() -> void:
+	# 待った不能(履歴 0/1 プライ)は retry を含め完全 no-op にする。
+	if session == null or not session.can_undo():
+		return
 	if ai_match != null:
 		ai_match.cancel_search()
-	if session != null and session.undo():
+	if session.undo():
 		_refresh_view()
 		if ai_match != null:
-			ai_match.on_position_changed()
+			ai_match.on_position_changed(true)
 
 
 func _on_ai_board_updated() -> void:

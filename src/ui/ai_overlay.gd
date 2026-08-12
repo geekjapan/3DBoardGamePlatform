@@ -4,11 +4,17 @@ extends CanvasLayer
 ## 思考中表示と設定ボタン。GameHud を触らずに重ねるオーバーレイ。
 
 signal settings_pressed
+signal retry_pressed
+signal disable_for_match_pressed
 
 var _thinking_label: Label
 var _status_label: Label
 var _settings_button: Button
 var _ai_badge: Label
+var _failure_panel: PanelContainer
+var _failure_label: Label
+var _retry_button: Button
+var _disable_button: Button
 
 
 func _init() -> void:
@@ -58,9 +64,42 @@ func _init() -> void:
 	_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_status_label)
 
+	_failure_panel = PanelContainer.new()
+	_failure_panel.name = "FailurePanel"
+	_failure_panel.position = Vector2(16, 236)
+	_failure_panel.custom_minimum_size = Vector2(480, 128)
+	root.add_child(_failure_panel)
+	var failure_box := VBoxContainer.new()
+	failure_box.add_theme_constant_override("separation", 8)
+	_failure_panel.add_child(failure_box)
+	_failure_label = Label.new()
+	_failure_label.name = "FailureLabel"
+	_failure_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_failure_label.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
+	failure_box.add_child(_failure_label)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 8)
+	failure_box.add_child(actions)
+	_retry_button = Button.new()
+	_retry_button.name = "RetryButton"
+	_retry_button.text = "再試行"
+	_retry_button.pressed.connect(func() -> void: retry_pressed.emit())
+	actions.add_child(_retry_button)
+	_disable_button = Button.new()
+	_disable_button.name = "DisableForMatchButton"
+	_disable_button.text = "この対局だけAI解除"
+	_disable_button.pressed.connect(func() -> void: disable_for_match_pressed.emit())
+	actions.add_child(_disable_button)
+	var failure_settings := Button.new()
+	failure_settings.name = "FailureSettingsButton"
+	failure_settings.text = "設定"
+	failure_settings.pressed.connect(func() -> void: settings_pressed.emit())
+	actions.add_child(failure_settings)
+
 	set_thinking(false)
 	set_ai_mode(false, "", false)
 	set_status("")
+	clear_failure()
 
 
 func set_thinking(active: bool) -> void:
@@ -77,6 +116,25 @@ func set_ai_mode(enabled: bool, strength_label: String, engine_ok: bool) -> void
 	else:
 		_ai_badge.text = "AI 対戦: オフ (2人対戦)"
 		_ai_badge.add_theme_color_override("font_color", Color(0.75, 0.78, 0.85))
+
+
+func set_failed(classification: String, reason: String, retry_enabled: bool = true) -> void:
+	_ai_badge.text = "AI対戦: 停止中"
+	_ai_badge.add_theme_color_override("font_color", Color(1.0, 0.48, 0.35))
+	_failure_label.text = "AI探索に失敗しました（分類: %s）。%s\n盤面は変更していません" % [
+		classification, reason,
+	]
+	_retry_button.disabled = not retry_enabled
+	_failure_panel.visible = true
+
+
+func set_retrying(active: bool) -> void:
+	_retry_button.disabled = active
+
+
+func clear_failure() -> void:
+	if _failure_panel != null:
+		_failure_panel.visible = false
 
 
 func set_status(text: String) -> void:
