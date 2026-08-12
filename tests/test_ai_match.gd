@@ -369,8 +369,13 @@ func test_ai_resign_finishes_session_with_human_win_and_preserves_board() -> voi
 	var stub := ControlledAdapter.new()
 	stub.queue_result(EngineAdapter.SearchStatus.RESIGNED, "", "resign")
 	var ai := _new_match(session, stub)
+	var status_messages: Array[String] = []
+	ai.status_message.connect(func(text: String) -> void: status_messages.append(text))
 	_advance_to_ai(session, ai, _move_by_squares(session.board(), Vector2i(2, 2), Vector2i(2, 3)))
 	var searched_board := session.board()
+	var searched_turn := session.side_to_move()
+	check_eq(searched_turn, Piece.Side.BLACK, "AI投了処理前はAI手番")
+	check(session.result() == null, "AI投了処理前は進行中")
 	_finish_pending(ai, stub)
 	var result := session.result()
 	check(result != null, "AI投了で終局")
@@ -378,7 +383,10 @@ func test_ai_resign_finishes_session_with_human_win_and_preserves_board() -> voi
 		check_eq(result.reason, GameResult.Reason.RESIGN, "投了理由")
 		check_eq(result.winner_side, Piece.Side.WHITE, "AI投了で人の勝ち")
 	check_eq(session.board(), searched_board, "投了で盤面不変")
-	check_eq(session.side_to_move(), Piece.Side.BLACK, "投了で手番不変")
+	check_eq(session.side_to_move(), searched_turn, "投了で手番不変")
+	check(not status_messages.is_empty(), "AI投了後にstatusを発火")
+	if not status_messages.is_empty():
+		check_eq(status_messages.back(), session.result_text(), "最終statusはSession結果文")
 	_cleanup_match(ai, stub)
 
 

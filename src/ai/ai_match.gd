@@ -197,7 +197,7 @@ func _apply_search_result(result: Dictionary, token: int, searched_board: Object
 	if status == EngineAdapter.SearchStatus.RESIGNED:
 		if session.finish_by_resignation(session.side_to_move()):
 			_clear_failure()
-			status_message.emit("AI が投了しました")
+			status_message.emit(session.result_text())
 			board_updated.emit()
 		else:
 			_fail({"status": EngineAdapter.SearchStatus.STALE, "message": "投了結果が失効しました"})
