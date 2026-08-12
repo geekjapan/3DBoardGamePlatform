@@ -94,6 +94,7 @@ func _init() -> void:
 	vbox.add_child(_status_label)
 
 	_ai_check = CheckBox.new()
+	_ai_check.toggled.connect(_on_ai_toggled)
 	vbox.add_child(_ai_check)
 
 	var human_side_row := HBoxContainer.new()
@@ -333,9 +334,15 @@ func _on_prob_changed(value: float) -> void:
 		_move_prob_value.text = "%d%%" % int(round(value * 100.0))
 
 
+func _on_ai_toggled(enabled: bool) -> void:
+	# 利用不可でも保存済み on は off にできる。off にした後は再び on にできない。
+	if not enabled:
+		_refresh_enabled_state()
+
+
 func _refresh_enabled_state() -> void:
 	var avail := _profile != null and _profile.engine_available
-	_ai_check.disabled = not avail
+	_ai_check.disabled = not avail and not _ai_check.button_pressed
 	if not avail:
 		_status_label.text = _profile.engine_message if _profile else "エンジン未設定"
 		_status_label.add_theme_color_override("font_color", Color(0.95, 0.45, 0.35))
@@ -357,11 +364,16 @@ func _on_probe() -> void:
 func _on_apply() -> void:
 	if _settings == null or _profile == null:
 		return
+	var was_enabled := _profile.enabled
 	_profile.engine_path = _path_edit.text.strip_edges()
 	_profile.strength = _strength_option.get_selected_id()
 	_profile.human_side = _human_side_option.get_selected_id()
 	# enabled は永続設定。probe の結果は runtime status として別に保持する。
 	_profile.enabled = _ai_check.button_pressed
+	if not _profile.engine_available and not was_enabled:
+		# unavailable の保存済み off は、外部から control 値を変えられても on にしない。
+		_profile.enabled = false
+	_ai_check.set_pressed_no_signal(_profile.enabled)
 	_settings.refresh_engine_status(_profile.protocol)
 	_settings.save_to_disk()
 	_refresh_enabled_state()

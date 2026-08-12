@@ -91,6 +91,8 @@ func rebind_settings(p_settings: AiSettings) -> void:
 	cancel_search()
 	settings = p_settings
 	_adapter = _create_adapter()
+	if _runtime_state == RuntimeState.FAILED and not _profile_can_play_ai():
+		_clear_failure()
 	if _runtime_state == RuntimeState.ACTIVE and is_ai_turn():
 		_start_search()
 

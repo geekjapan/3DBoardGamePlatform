@@ -179,6 +179,44 @@ func test_settings_panel_edits_only_active_game_profile() -> void:
 	_cleanup(path)
 
 
+func test_unavailable_engine_allows_only_enabled_to_disabled_transition() -> void:
+	var enabled_path := _path("panel_unavailable_enabled")
+	var enabled_settings := AiSettings.new()
+	enabled_settings.config_path = enabled_path
+	enabled_settings.usi.engine_path = ""
+	enabled_settings.usi.enabled = true
+	var enabled_panel := SettingsPanel.new()
+	enabled_panel.open_for_game(enabled_settings, "shogi", SpeechSettings.new())
+	check(enabled_panel._ai_check.button_pressed, "利用不可でも保存済みonを表示")
+	check(not enabled_panel._ai_check.disabled, "利用不可の保存済みonはoff操作を許可")
+	enabled_panel._ai_check.button_pressed = false
+	check(enabled_panel._ai_check.disabled, "利用不可でoffにした後はon操作を禁止")
+	enabled_panel._on_apply()
+	check(not enabled_settings.usi.enabled, "利用不可のonからoffを保存")
+	var enabled_loaded := AiSettings.load_or_default(enabled_path)
+	check(not enabled_loaded.usi.enabled, "保存後もUSI profileはoff")
+	enabled_panel.free()
+	_cleanup(enabled_path)
+
+	var disabled_path := _path("panel_unavailable_disabled")
+	var disabled_settings := AiSettings.new()
+	disabled_settings.config_path = disabled_path
+	disabled_settings.usi.engine_path = ""
+	disabled_settings.usi.enabled = false
+	var disabled_panel := SettingsPanel.new()
+	disabled_panel.open_for_game(disabled_settings, "shogi", SpeechSettings.new())
+	check(not disabled_panel._ai_check.button_pressed, "利用不可の保存済みoffを表示")
+	check(disabled_panel._ai_check.disabled, "利用不可の保存済みoffはon操作を禁止")
+	# disabled control の値が外部から変わっても、保存境界では off -> on を拒否する。
+	disabled_panel._ai_check.button_pressed = true
+	disabled_panel._on_apply()
+	check(not disabled_settings.usi.enabled, "利用不可のoffからonを保存しない")
+	var disabled_loaded := AiSettings.load_or_default(disabled_path)
+	check(not disabled_loaded.usi.enabled, "再読込後もUSI profileはoff")
+	disabled_panel.free()
+	_cleanup(disabled_path)
+
+
 func _path(prefix: String) -> String:
 	return "user://test_ai_settings_%s_%d.cfg" % [prefix, Time.get_ticks_usec()]
 

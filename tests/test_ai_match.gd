@@ -256,6 +256,47 @@ func test_retry_failure_remains_failed_without_mutating_position() -> void:
 	_cleanup_match(ai, stub)
 
 
+func test_rebind_disabled_profile_clears_failed_runtime_without_mutating_session() -> void:
+	var session := GameSession.from_board(ShogiBoard.start())
+	var stub := ControlledAdapter.new()
+	stub.queue_result(EngineAdapter.SearchStatus.PROCESS_EXITED, "", "engine stopped")
+	var ai := _new_match(session, stub)
+	var status_messages: Array[String] = []
+	var failure_cleared_events: Array[bool] = []
+	ai.status_message.connect(func(text: String) -> void: status_messages.append(text))
+	ai.failure_cleared.connect(func() -> void: failure_cleared_events.append(true))
+	_advance_to_ai(session, ai, _move_by_squares(session.board(), Vector2i(2, 2), Vector2i(2, 3)))
+	_finish_pending(ai, stub)
+	check(ai.is_failed(), "rebind前はFAILED")
+	var failed_board := session.board()
+	var failed_turn := session.side_to_move()
+	var failed_result := session.result()
+	var failed_result_text := session.result_text()
+	var status_count := status_messages.size()
+	var search_count := stub.search_count
+	var cancel_count := stub.cancel_count
+
+	var disabled_settings := _settings("usi")
+	disabled_settings.profile("usi").enabled = false
+	ai.rebind_settings(disabled_settings)
+
+	check(not ai.is_ai_enabled(), "disabled profileへのrebind後はAI無効")
+	check(not ai.is_failed(), "disabled profileへのrebindでFAILEDをclear")
+	check(ai.failure_details().is_empty(), "retry不能なfailure detailsをclear")
+	check(not ai.is_ai_turn(), "disabled profileへのrebind後はAI手番でない")
+	check(not ai.is_thinking(), "disabled profileへのrebind後はthinking解除")
+	check(not ai.retry_failed_search(), "clear後はstale failureをretryできない")
+	check_eq(failure_cleared_events.size(), 1, "failure UIへclearを通知")
+	check_eq(stub.cancel_count, cancel_count + 1, "rebindでadapter runtimeをcancel")
+	check_eq(stub.search_count, search_count, "disabled rebindで探索を開始しない")
+	check_eq(status_messages.size(), status_count, "rebindでstatus_message正本を上書きしない")
+	check_eq(session.board(), failed_board, "rebindで盤面不変")
+	check_eq(session.side_to_move(), failed_turn, "rebindで手番不変")
+	check_eq(session.result(), failed_result, "rebindでGameResult不変")
+	check_eq(session.result_text(), failed_result_text, "rebindでGameSession.result_text不変")
+	_cleanup_match(ai, stub)
+
+
 func test_cancelled_and_stale_results_are_ignored() -> void:
 	for status in [EngineAdapter.SearchStatus.CANCELLED, EngineAdapter.SearchStatus.STALE]:
 		var session := GameSession.from_board(ShogiBoard.start())
