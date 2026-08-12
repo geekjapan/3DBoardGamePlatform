@@ -70,13 +70,12 @@ func is_important(event: MoveEvent) -> bool:
 		event.was_capture()
 		or event.is_check
 		or event.was_promotion()
-		or event.was_drop()
 		or event.is_over
 	)
 
 
 func _should_speak_mover(event: MoveEvent, event_key: String) -> bool:
-	if event_key != "moved":
+	if event_key != "moved" and event_key != "dropped":
 		# 重要イベントは必ず発話を試みる(セリフ未定義なら結果として空になるだけ)。
 		return true
 	var p := clampf(move_probability, 0.0, 1.0)

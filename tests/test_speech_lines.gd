@@ -123,6 +123,51 @@ func test_move_probability_zero_and_one() -> void:
 		check_eq((plan[0] as SpeechUtterance).event_key, "moved", "moved キー #%d" % i)
 
 
+func test_drop_probability_and_important_flag_precedence() -> void:
+	var catalog := _catalog_with_single("dropper", {
+		"dropped": ["打つ"],
+		"captured": ["取る"],
+		"check": ["王手"],
+		"promoted": ["成る"],
+		"game_over": ["勝敗"],
+	})
+	catalog.team.assign(Piece.Kind.SHOGI_SILVER, "dropper")
+	var resolver := SpeechResolver.new(catalog)
+	var ordinary := _event_drop(Piece.Kind.SHOGI_SILVER)
+
+	resolver.move_probability = 0.0
+	check_eq(resolver.plan(ordinary).size(), 0, "確率0なら通常の打つ手は発話しない")
+	check(not resolver.is_important(ordinary), "通常の打つ手は非重要")
+
+	resolver.move_probability = 1.0
+	var ordinary_plan: Array = resolver.plan(ordinary)
+	check_eq(ordinary_plan.size(), 1, "確率1なら通常の打つ手は1発話")
+	check_eq((ordinary_plan[0] as SpeechUtterance).event_key, "dropped", "dropped キー")
+
+	var capture_drop := _event_drop(Piece.Kind.SHOGI_SILVER)
+	capture_drop.captured = Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_PAWN)
+	capture_drop.captured_square = capture_drop.to_square()
+	var check_drop := _event_drop(Piece.Kind.SHOGI_SILVER)
+	check_drop.is_check = true
+	var promotion_drop := _event_drop(Piece.Kind.SHOGI_SILVER)
+	promotion_drop.move.promotion = Piece.Kind.SHOGI_PROMOTED_SILVER
+	var game_over_drop := _event_drop(Piece.Kind.SHOGI_SILVER)
+	game_over_drop.is_over = true
+	var important_cases: Array = [
+		{"label": "capture", "event": capture_drop, "key": "captured"},
+		{"label": "check", "event": check_drop, "key": "check"},
+		{"label": "promotion", "event": promotion_drop, "key": "promoted"},
+		{"label": "game-over", "event": game_over_drop, "key": "game_over"},
+	]
+	resolver.move_probability = 0.0
+	for item in important_cases:
+		var event := item["event"] as MoveEvent
+		var plan: Array = resolver.plan(event)
+		check(resolver.is_important(event), "%s付きdropは重要" % item["label"])
+		check_eq(plan.size(), 1, "%s付きdropは確率0でも1発話" % item["label"])
+		check_eq((plan[0] as SpeechUtterance).event_key, item["key"], "%sの重要キー" % item["label"])
+
+
 func test_lines_come_from_assigned_character_table() -> void:
 	var catalog := SpeechCatalog.new()
 	var pawn_char := CharacterDef.new()
@@ -346,6 +391,14 @@ func _event_quiet_move(kind: int) -> MoveEvent:
 	ev.is_checkmate = false
 	ev.is_stalemate = false
 	ev.is_over = false
+	return ev
+
+
+func _event_drop(kind: int) -> MoveEvent:
+	var ev := MoveEvent.new()
+	ev.move = Move.drop(kind, Vector2i(4, 4))
+	ev.mover_side = Piece.Side.WHITE
+	ev.mover_kind = kind
 	return ev
 
 

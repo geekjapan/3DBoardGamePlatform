@@ -168,10 +168,11 @@ func test_drop_move_event_and_speech_are_distinct_from_move_capture_and_promotio
 	catalog.characters[character.id] = character
 	catalog.team.assign(Piece.Kind.SHOGI_SILVER, character.id)
 	var resolver := SpeechResolver.new(catalog)
+	resolver.move_probability = 1.0
 	var plan := resolver.plan(event)
 	check_eq(plan.size(), 1, "既存moved台詞へ互換fallback")
 	check_eq((plan[0] as SpeechUtterance).event_key, "dropped", "発話種別はdropped")
-	check(resolver.is_important(event), "打つ手は通常移動と区別")
+	check(not resolver.is_important(event), "通常の打つ手は非重要")
 	var director := SpeechDirector.new()
 	director.resolver = resolver
 	var context := director.build_llm_context(plan[0] as SpeechUtterance, event, "動く")
