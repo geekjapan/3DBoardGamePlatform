@@ -257,6 +257,10 @@ func selected_kind() -> int:
 	return _selected_kind
 
 
+func game_id() -> String:
+	return _game_id
+
+
 func set_game_filter(game_id: String) -> void:
 	## 表示対象だけを切り替え、_draft の非表示側 assignment は変更しない。
 	_game_id = game_id if game_id == SpeechCatalog.GAME_SHOGI else SpeechCatalog.GAME_CHESS
