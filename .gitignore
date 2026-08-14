@@ -9,7 +9,27 @@ export_presets.cfg
 
 .DS_Store
 
-# キャラクターモデルの実体。配布モデルはライセンス上コミットできず、
-# 数十 MB になるため各自が assets/models/ に置く。手順は docs/model-import.md。
+# キャラクターモデルの実体はローカル専用の入力。リポジトリとリリースには含めない。
+# 取り込み手順と公開時の方針は docs/model-import.md を参照。
 assets/models/*
 !assets/models/.gitkeep
+
+# モデル作成・変換時に別の場所へ置いたファイルも誤って公開しない。
+# 公開可能なアセットを将来追加する場合は、個別のライセンス表示と明示的な
+# allowlist を先に用意する。
+*.vrm
+*.pmx
+*.pmd
+*.fbx
+*.blend
+*.glb
+*.gltf
+
+# ローカルの認証情報・署名情報
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
