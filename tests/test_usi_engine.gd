@@ -150,8 +150,12 @@ func test_explicit_real_usi_engine_smoke_is_gating() -> void:
 	var path := OS.get_environment("USI_ENGINE_PATH")
 	if path.is_empty():
 		path = OS.get_environment("BOARDGAME_USI_ENGINE")
+	var required := OS.get_environment("USI_ENGINE_REQUIRED").to_lower() in ["1", "true", "yes"]
 	if path.is_empty():
-		print("SKIP test_explicit_real_usi_engine_smoke_is_gating — USI_ENGINE_PATH/BOARDGAME_USI_ENGINE unset")
+		if required:
+			check(false, "USI_ENGINE_REQUIRED=1 では USI_ENGINE_PATH/BOARDGAME_USI_ENGINE が必要")
+		else:
+			print("SKIP test_explicit_real_usi_engine_smoke_is_gating — USI_ENGINE_PATH/BOARDGAME_USI_ENGINE unset")
 		return
 	var engine := UsiEngine.new()
 	var position := ShogiUsiCodec.position_startpos()

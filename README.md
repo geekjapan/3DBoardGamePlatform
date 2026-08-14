@@ -78,8 +78,15 @@ tests/run.sh
 ```
 
 終了コード `0` は全テスト成功です。`GODOT` 環境変数で Godot の実行ファイルを上書きできます。
-GitHub Actions でも Godot 4.7.1 で同じコマンドを実行します。実機 USI エンジンを必要とする
-スモークテストは、エンジンの環境変数が未設定の CI では正常なスキップです。
+GitHub Actions は Godot 4.7.1 に加えて、GPL-3.0の[Apery Rust版](https://github.com/HiraokaTakuya/apery_rust)を固定コミット `8e64bc427bff033a38f1b60b9013ad2d62f88db7` から、評価関数不要の`material`構成でビルドする。CIではこの実機USIエンジンを必須として同じテスト入口を実行するため、エンジン未設定によるスモークテストのスキップは失敗になる。エンジンのバイナリや評価関数はリポジトリへ同梱しない。
+
+ローカルの通常テストは、`USI_ENGINE_PATH`または`BOARDGAME_USI_ENGINE`が未設定なら実機スモークテストをスキップする。実機連携も再現したい場合は、Aperyを`cargo build --release --locked --no-default-features --features material`でビルドし、次のように実行する。
+
+```sh
+USI_ENGINE_REQUIRED=1 \
+USI_ENGINE_PATH=/path/to/apery \
+./tests/run.sh
+```
 
 用語の定義は [CONTEXT.md](CONTEXT.md)、設計判断は [docs/adr/](docs/adr/) を参照してください。
 

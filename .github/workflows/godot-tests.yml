@@ -37,6 +37,20 @@ jobs:
           echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/godot" --version
 
+      - name: Build fixed real USI engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          apery_commit="8e64bc427bff033a38f1b60b9013ad2d62f88db7"
+          engine_dir="${RUNNER_TEMP}/apery_rust"
+          git clone --filter=blob:none https://github.com/HiraokaTakuya/apery_rust.git "${engine_dir}"
+          git -C "${engine_dir}" checkout --detach "${apery_commit}"
+          cargo build --manifest-path "${engine_dir}/Cargo.toml" --release --locked --no-default-features --features material
+          engine_path="${engine_dir}/target/release/apery"
+          test -x "${engine_path}"
+          echo "USI_ENGINE_PATH=${engine_path}" >> "${GITHUB_ENV}"
+          echo "USI_ENGINE_REQUIRED=1" >> "${GITHUB_ENV}"
+
       - name: Run headless test suite
         id: test
         shell: bash
