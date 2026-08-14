@@ -212,6 +212,7 @@ func test_director_llm_replaces_text_on_success() -> void:
 	view.apply_board(session.board())
 	var bubbles: Array = director.present_event(ev)
 	check_eq(bubbles.size(), 2, "双方発話")
+	director.poll_pending_llm_requests()
 	for b in bubbles:
 		var bubble := b as SpeechBubble
 		check(str(bubble.text()).begins_with("生成_"), "生成文が表示される: %s" % bubble.text())
@@ -269,6 +270,7 @@ func test_director_llm_three_fallbacks_keep_fixed_lines() -> void:
 		var bubbles: Array = director.present_event(quiet)
 		check_eq(bubbles.size(), 1, "%s: 吹き出し1" % case["name"])
 		check_eq((bubbles[0] as SpeechBubble).text(), "固定セリフ", "%s: 定型で進む" % case["name"])
+		director.poll_pending_llm_requests()
 		check_eq(director.last_resolve_reasons.size(), 1, "%s: reason 記録" % case["name"])
 		check_eq(
 			director.last_resolve_reasons[0],

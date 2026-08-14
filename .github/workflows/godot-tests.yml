@@ -1,0 +1,53 @@
+name: Godot headless tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Godot ${{ matrix.godot }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        godot: [4.7.1]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ matrix.godot }}"
+          archive="Godot_v${version}-stable_linux.x86_64.zip"
+          url="https://github.com/godotengine/godot/releases/download/${version}-stable/${archive}"
+          curl --fail --location --retry 3 --retry-all-errors --output "${archive}" "${url}"
+          unzip -q "${archive}"
+          binary="Godot_v${version}-stable_linux.x86_64"
+          chmod +x "${binary}"
+          mv "${binary}" "${RUNNER_TEMP}/godot"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+          godot --version
+
+      - name: Run headless test suite
+        id: test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tests/run.sh 2>&1 | tee godot-test.log
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-test-log-${{ matrix.godot }}
+          path: godot-test.log
+          if-no-files-found: warn

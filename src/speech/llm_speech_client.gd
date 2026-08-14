@@ -87,6 +87,8 @@ func generate_or_fallback(context: Dictionary) -> Dictionary:
 
 func build_prompt(context: Dictionary) -> String:
 	var name := str(context.get("display_name", context.get("character_name", "駒")))
+	var game_id := str(context.get("game_id", SpeechCatalog.GAME_CHESS))
+	var game_role := "将棋の駒キャラクター" if game_id == SpeechCatalog.GAME_SHOGI else "チェスの駒キャラクター"
 	var personality := str(context.get("personality", ""))
 	var event_key := str(context.get("event_key", "moved"))
 	var board_hint := str(context.get("board_hint", ""))
@@ -94,7 +96,8 @@ func build_prompt(context: Dictionary) -> String:
 	var kind_label := str(context.get("kind_label", ""))
 	var event_ja := _event_key_ja(event_key)
 	var lines: PackedStringArray = [
-		"あなたはチェスの駒キャラクターとして短い日本語のセリフを1つだけ返す。",
+		"ゲーム種別: %s" % game_id,
+		"あなたは%sとして短い日本語のセリフを1つだけ返す。" % game_role,
 		"説明や前置きは禁止。セリフ本文のみ。40文字以内。",
 		"キャラクター名: %s" % name,
 		"性格: %s" % personality,
