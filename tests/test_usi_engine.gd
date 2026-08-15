@@ -172,6 +172,80 @@ func test_explicit_real_usi_engine_smoke_is_gating() -> void:
 			check(board.apply(move) != null, "明示実USIの strength=%d 適用可能" % strength)
 
 
+
+func test_explicit_real_usi_engine_multiple_positions_are_legal() -> void:
+	var path := OS.get_environment("USI_ENGINE_PATH")
+	if path.is_empty():
+		path = OS.get_environment("BOARDGAME_USI_ENGINE")
+	var required := OS.get_environment("USI_ENGINE_REQUIRED").to_lower() in ["1", "true", "yes"]
+	if path.is_empty():
+		if required:
+			check(false, "USI_ENGINE_REQUIRED=1 では複数局面テストにエンジンが必要")
+		else:
+			print("SKIP test_explicit_real_usi_engine_multiple_positions_are_legal — USI engine unset")
+		return
+	var engine := UsiEngine.new()
+	for scenario in _real_usi_position_scenarios():
+		var name := str(scenario["name"])
+		var board := scenario["board"] as ShogiBoard
+		var position := str(scenario["position"])
+		var required_move := str(scenario.get("required_legal_move", ""))
+		check(not position.is_empty(), "%s: USI position が空でない" % name)
+		if not required_move.is_empty():
+			check(ShogiUsiCodec.parse_legal_move(board, required_move) != null, "%s: %s が合法候補" % [name, required_move])
+		var result := engine.search_best_move_result_sync(path, position, EngineAdapter.Strength.MEDIUM, 1000)
+		var diagnostic := "%s position=%s engine=%s elapsed_ms=%s response=%s" % [name, position, result.get("engine_id", ""), result.get("elapsed_ms", -1), str(result.get("move_text", ""))]
+		check_eq(int(result.get("status", -1)), EngineAdapter.SearchStatus.OK, "%s: 実機探索成功 (%s)" % [name, diagnostic])
+		check(not str(result.get("engine_id", "")).is_empty(), "%s: engine id (%s)" % [name, diagnostic])
+		check(int(result.get("elapsed_ms", -1)) >= 0, "%s: 経過時間 (%s)" % [name, diagnostic])
+		var move := ShogiUsiCodec.parse_legal_move(board, str(result.get("move_text", "")))
+		check(move != null, "%s: 返答手が合法 (%s)" % [name, diagnostic])
+		if move != null:
+			check(board.apply(move) != null, "%s: 返答手を適用可能 (%s)" % [name, diagnostic])
+
+
+func _real_usi_position_scenarios() -> Array:
+	var start := ShogiBoard.start()
+	var after_normal := ShogiBoard.start()
+	var normal_move := ShogiUsiCodec.parse_legal_move(after_normal, "7g7f")
+	assert(normal_move != null, "通常移動局面の前提手が必要")
+	after_normal = after_normal.apply(normal_move)
+
+	var promotion := ShogiBoard.empty()
+	promotion.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	promotion.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	promotion.set_piece(Vector2i(2, 5), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_PAWN))
+
+	var drop := ShogiBoard.empty()
+	drop.set_piece(Vector2i(0, 0), Piece.new(Piece.Side.WHITE, Piece.Kind.SHOGI_KING))
+	drop.set_piece(Vector2i(8, 8), Piece.new(Piece.Side.BLACK, Piece.Kind.SHOGI_KING))
+	drop.hands[Piece.Side.WHITE][Piece.Kind.SHOGI_SILVER] = 1
+
+	return [
+		{
+			"name": "初期局面",
+			"board": start,
+			"position": ShogiUsiCodec.position_startpos(),
+		},
+		{
+			"name": "通常移動後",
+			"board": after_normal,
+			"position": ShogiUsiCodec.position_startpos(["7g7f"]),
+		},
+		{
+			"name": "成りが合法な局面",
+			"board": promotion,
+			"position": ShogiUsiCodec.position(promotion),
+			"required_legal_move": "7d7c+",
+		},
+		{
+			"name": "持ち駒を打てる局面",
+			"board": drop,
+			"position": ShogiUsiCodec.position(drop),
+			"required_legal_move": "S*5e",
+		},
+	]
+
 func _set_fake(mode: String, option_mode: String) -> void:
 	OS.set_environment("FAKE_USI_MODE", mode)
 	OS.set_environment("FAKE_USI_OPTIONS", option_mode)
