@@ -4,6 +4,11 @@ extends "res://tests/case.gd"
 ## byoyomi, so all wire-level acceptance cases are deterministic and mandatory.
 
 const FAKE := "res://tests/fake_usi_engine.sh"
+const UsiTestDiagnostics := preload("res://tests/usi_test_diagnostics.gd")
+const DEFAULT_REAL_USI_SOAK_PLIES := 8
+const MAX_REAL_USI_SOAK_PLIES := 80
+const REAL_USI_MOVETIME_MS := 300
+const REAL_USI_MAX_ELAPSED_MS := 3000
 
 
 func test_strict_fake_probe_and_transcript() -> void:
@@ -146,6 +151,19 @@ func test_strict_fake_timeout_and_process_exit_are_distinct() -> void:
 	check_eq(int(exited.get("status", -1)), EngineAdapter.SearchStatus.PROCESS_EXITED, "process exit")
 
 
+
+func test_strict_fake_process_exit_allows_following_fresh_search() -> void:
+	var engine := UsiEngine.new()
+	var path := ProjectSettings.globalize_path(FAKE)
+	_set_fake("exit", "valid")
+	var exited := engine.search_best_move_result_sync(path, "startpos", EngineAdapter.Strength.WEAK, 300)
+	check_eq(int(exited.get("status", -1)), EngineAdapter.SearchStatus.PROCESS_EXITED, "終了したプロセスは明示的に分類")
+	_set_fake("normal", "valid")
+	var recovered := engine.search_best_move_result_sync(path, "startpos", EngineAdapter.Strength.WEAK, 300)
+	check_eq(int(recovered.get("status", -1)), EngineAdapter.SearchStatus.OK, "次の探索は新規プロセスで回復")
+	var move := ShogiUsiCodec.parse_legal_move(ShogiBoard.start(), str(recovered.get("move_text", "")))
+	check(move != null, "回復後の探索は初期局面の合法手")
+
 func test_explicit_real_usi_engine_smoke_is_gating() -> void:
 	var path := OS.get_environment("USI_ENGINE_PATH")
 	if path.is_empty():
@@ -195,14 +213,90 @@ func test_explicit_real_usi_engine_multiple_positions_are_legal() -> void:
 			check(ShogiUsiCodec.parse_legal_move(board, required_move) != null, "%s: %s が合法候補" % [name, required_move])
 		var result := engine.search_best_move_result_sync(path, position, EngineAdapter.Strength.MEDIUM, 1000)
 		var diagnostic := "%s position=%s engine=%s elapsed_ms=%s response=%s" % [name, position, result.get("engine_id", ""), result.get("elapsed_ms", -1), str(result.get("move_text", ""))]
-		check_eq(int(result.get("status", -1)), EngineAdapter.SearchStatus.OK, "%s: 実機探索成功 (%s)" % [name, diagnostic])
+		if int(result.get("status", -1)) != EngineAdapter.SearchStatus.OK:
+			UsiTestDiagnostics.record_failure("#46-%s" % name, position, -1, result, "search-status")
+			check(false, "%s: 実機探索失敗 (%s)" % [name, diagnostic])
+			continue
 		check(not str(result.get("engine_id", "")).is_empty(), "%s: engine id (%s)" % [name, diagnostic])
 		check(int(result.get("elapsed_ms", -1)) >= 0, "%s: 経過時間 (%s)" % [name, diagnostic])
 		var move := ShogiUsiCodec.parse_legal_move(board, str(result.get("move_text", "")))
-		check(move != null, "%s: 返答手が合法 (%s)" % [name, diagnostic])
-		if move != null:
-			check(board.apply(move) != null, "%s: 返答手を適用可能 (%s)" % [name, diagnostic])
+		if move == null:
+			UsiTestDiagnostics.record_failure("#46-%s" % name, position, -1, result, "response-not-legal")
+			check(false, "%s: 返答手が合法 (%s)" % [name, diagnostic])
+			continue
+		var next := board.apply(move)
+		if next == null:
+			UsiTestDiagnostics.record_failure("#46-%s" % name, position, -1, result, "legal-move-not-applicable")
+			check(false, "%s: 返答手を適用できない (%s)" % [name, diagnostic])
 
+
+
+func test_explicit_real_usi_engine_short_match_timeout_and_fresh_game() -> void:
+	var path := _real_usi_path_or_skip("test_explicit_real_usi_engine_short_match_timeout_and_fresh_game")
+	if path.is_empty():
+		return
+	var engine := UsiEngine.new()
+	var board := ShogiBoard.start()
+	var plies := _real_usi_soak_plies()
+	for ply in range(plies):
+		var position := ShogiUsiCodec.position(board)
+		var result := engine.search_best_move_result_sync(path, position, EngineAdapter.Strength.WEAK, REAL_USI_MOVETIME_MS)
+		if int(result.get("status", -1)) != EngineAdapter.SearchStatus.OK:
+			UsiTestDiagnostics.record_failure("S1-short-real-match", position, ply, result, "search-status")
+			check(false, "S1 ply=%d: 実機探索失敗 status=%s position=%s" % [ply, result.get("status", -1), position])
+			return
+		if int(result.get("elapsed_ms", -1)) > REAL_USI_MAX_ELAPSED_MS:
+			UsiTestDiagnostics.record_failure("S2-search-time-boundary", position, ply, result, "elapsed-time-exceeded")
+			check(false, "S2 ply=%d: 探索時間超過 elapsed=%s position=%s" % [ply, result.get("elapsed_ms", -1), position])
+			return
+		var move := ShogiUsiCodec.parse_legal_move(board, str(result.get("move_text", "")))
+		if move == null:
+			UsiTestDiagnostics.record_failure("S1-short-real-match", position, ply, result, "response-not-legal")
+			check(false, "S1 ply=%d: 実機返答が合法手ではない position=%s response=%s" % [ply, position, result.get("move_text", "")])
+			return
+		var next := board.apply(move)
+		if next == null:
+			UsiTestDiagnostics.record_failure("S1-short-real-match", position, ply, result, "legal-move-not-applicable")
+			check(false, "S1 ply=%d: 合法手を適用できない position=%s" % [ply, position])
+			return
+		board = next
+	var expected_side := Piece.Side.WHITE if plies % 2 == 0 else Piece.Side.BLACK
+	check_eq(board.side_to_move, expected_side, "S1: 実行手数に応じて手番が交代")
+
+	var fresh_board := ShogiBoard.start()
+	var fresh_position := ShogiUsiCodec.position(fresh_board)
+	var fresh_result := engine.search_best_move_result_sync(path, fresh_position, EngineAdapter.Strength.WEAK, REAL_USI_MOVETIME_MS)
+	if int(fresh_result.get("status", -1)) != EngineAdapter.SearchStatus.OK:
+		UsiTestDiagnostics.record_failure("S4-fresh-game-after-short-match", fresh_position, plies, fresh_result, "fresh-game-search-status")
+		check(false, "S4: 新局の実機探索失敗 status=%s" % fresh_result.get("status", -1))
+		return
+	var fresh_move := ShogiUsiCodec.parse_legal_move(fresh_board, str(fresh_result.get("move_text", "")))
+	if fresh_move == null:
+		UsiTestDiagnostics.record_failure("S4-fresh-game-after-short-match", fresh_position, plies, fresh_result, "fresh-game-response-not-legal")
+		check(false, "S4: 新局の返答手が初期局面で合法ではない")
+		return
+	check(fresh_board.apply(fresh_move) != null, "S4: 新局の返答手を適用できる")
+
+
+
+func _real_usi_soak_plies() -> int:
+	var configured := int(OS.get_environment("USI_SOAK_PLIES"))
+	if configured <= 0:
+		return DEFAULT_REAL_USI_SOAK_PLIES
+	return mini(configured, MAX_REAL_USI_SOAK_PLIES)
+
+
+func _real_usi_path_or_skip(test_name: String) -> String:
+	var path := OS.get_environment("USI_ENGINE_PATH")
+	if path.is_empty():
+		path = OS.get_environment("BOARDGAME_USI_ENGINE")
+	var required := OS.get_environment("USI_ENGINE_REQUIRED").to_lower() in ["1", "true", "yes"]
+	if path.is_empty():
+		if required:
+			check(false, "USI_ENGINE_REQUIRED=1 では %s にエンジンが必要" % test_name)
+		else:
+			print("SKIP %s — USI engine unset" % test_name)
+	return path
 
 func _real_usi_position_scenarios() -> Array:
 	var start := ShogiBoard.start()

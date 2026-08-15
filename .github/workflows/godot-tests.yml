@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      usi_soak_plies:
+        description: "実機USI耐性テストの手数（1〜80、既定8）"
+        required: false
+        default: "8"
+        type: string
 
 permissions:
   contents: read
@@ -54,6 +60,9 @@ jobs:
       - name: Run headless test suite
         id: test
         shell: bash
+        env:
+          USI_DIAGNOSTICS_DIR: ${{ runner.temp }}/usi-diagnostics
+          USI_SOAK_PLIES: ${{ github.event.inputs.usi_soak_plies || '8' }}
         run: |
           set -o pipefail
           ./tests/run.sh 2>&1 | tee godot-test.log
@@ -64,4 +73,11 @@ jobs:
         with:
           name: godot-test-log-${{ matrix.godot }}
           path: godot-test.log
+          if-no-files-found: warn
+      - name: Upload USI diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usi-failure-diagnostics-${{ matrix.godot }}
+          path: ${{ runner.temp }}/usi-diagnostics
           if-no-files-found: warn

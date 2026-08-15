@@ -82,6 +82,10 @@ GitHub Actions は Godot 4.7.1 に加えて、GPL-3.0の[Apery Rust版](https://
 
 ローカルの通常テストは、`USI_ENGINE_PATH`または`BOARDGAME_USI_ENGINE`が未設定なら実機スモークテストをスキップする。実機連携も再現したい場合は、Aperyを`cargo build --release --locked --no-default-features --features material`でビルドし、次のように実行する。
 
+実機USIの有限対局で失敗した場合は、`USI_DIAGNOSTICS_DIR`で指定したディレクトリへ`usi-failure-diagnostics.json`が出力される。JSONには局面名、手数、USI position、結果分類、エンジンID、経過時間、返答手、最大2000文字のトランスクリプト要約のみを記録する。CIではテスト失敗時にこのJSONとテストログを成果物として取得できる。
+
+通常のpush・PRでは実機USI耐性テストを8手で実行する。より長い検証はGitHub Actionsの手動実行から`usi_soak_plies`を指定して実行でき、上限は80手である。ローカルでも`USI_SOAK_PLIES=40`のように指定できる。
+
 ```sh
 USI_ENGINE_REQUIRED=1 \
 USI_ENGINE_PATH=/path/to/apery \
